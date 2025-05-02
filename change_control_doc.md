@@ -52,4 +52,3 @@ Use code with caution.
 
 Убедитесь, что файл notes.md создан.
 Use code with caution.
-Как получить этот формат?
