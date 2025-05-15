@@ -3,43 +3,43 @@
 import os
 import sys
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox  # Добавил messagebox на всякий случай
+from tkinter import ttk, scrolledtext, messagebox
 from pathlib import Path
 import json
-import traceback  # Для вывода ошибок
+import traceback
 
 print("DEBUG: Standard imports done.")
 
-# Импортируем функции из наших модулей
 try:
     from patching import process_input
     from treeview_logic import (
         populate_file_tree_threaded, toggle_check, set_all_tree_check_state,
-        update_selected_tokens_display, # Добавлено для задачи 4
-        CHECKED_TAG, BINARY_TAG, LARGE_FILE_TAG, ERROR_TAG, EXCLUDED_BY_DEFAULT_TAG,
+        update_selected_tokens_display,
+        CHECKED_TAG, PARTIALLY_CHECKED_TAG, # Добавлен PARTIALLY_CHECKED_TAG
+        BINARY_TAG, LARGE_FILE_TAG, ERROR_TAG, EXCLUDED_BY_DEFAULT_TAG,
         TOO_MANY_TOKENS_TAG, FOLDER_TAG, FILE_TAG
     )
     from gui_utils import (
         create_context_menu, copy_logs, clear_input_field, select_project_dir
     )
     from clipboard_logic import copy_project_files
-    from file_processing import resource_path # Добавлено для иконки
+    from file_processing import resource_path
 
     print("DEBUG: Module imports successful.")
 except ImportError as import_err:
     error_message = f"CRITICAL ERROR: Failed to import modules: {import_err}\n\n{traceback.format_exc()}"
     print(error_message)
-    try:  # Пробуем показать ошибку в GUI
+    try:
         err_root = tk.Tk();
         err_root.withdraw()
         messagebox.showerror("Import Error", error_message)
     except Exception as e:
         print(f"Could not show error in messagebox: {e}")
     sys.exit(1)
-except Exception as general_import_err:  # Ловим и другие ошибки импорта
+except Exception as general_import_err:
     error_message = f"CRITICAL ERROR during imports: {general_import_err}\n\n{traceback.format_exc()}"
     print(error_message)
-    try:  # Пробуем показать ошибку в GUI
+    try:
         err_root = tk.Tk();
         err_root.withdraw()
         messagebox.showerror("Import Error", error_message)
@@ -47,8 +47,6 @@ except Exception as general_import_err:  # Ловим и другие ошибк
         pass
     sys.exit(1)
 
-# --- Создание GUI ---
-# Обернем создание GUI в try-except
 try:
     print("DEBUG: Creating root window...")
     root = tk.Tk();
@@ -58,27 +56,21 @@ try:
     style.map("Treeview", background=[('selected', '#E0E0E0')], foreground=[('selected', 'black')])
     print("DEBUG: Root window created.")
 
-    # --- Установка иконки окна (Задача 2) ---
     try:
-        # app_icon.ico находится в project_agent/ (рядом с этим скриптом)
         icon_file_name = "app_icon.ico"
-        # Сначала пробуем прямой путь (для разработки)
         if os.path.exists(icon_file_name):
             root.iconbitmap(icon_file_name)
             print(f"DEBUG: Window icon set to {icon_file_name}")
         else:
-            # Затем пробуем через resource_path (для собранного приложения)
             icon_path_res = resource_path(icon_file_name)
             if os.path.exists(icon_path_res):
                 root.iconbitmap(icon_path_res)
                 print(f"DEBUG: Window icon set via resource_path to {icon_path_res}")
             else:
-                print(f"DEBUG: Window icon file '{icon_file_name}' not found directly or via resource_path. Using default.")
+                print(f"DEBUG: Window icon file '{icon_file_name}' not found. Using default.")
     except Exception as e_icon:
         print(f"DEBUG: Error setting window icon: {e_icon}")
 
-
-    # --- Верхняя часть: Выбор директории и Прогресс-бар ---
     top_controls_frame = tk.Frame(root);
     top_controls_frame.pack(side=tk.TOP, fill=tk.X, pady=(10, 5), padx=10)
     dir_selection_frame = tk.Frame(top_controls_frame);
@@ -86,7 +78,7 @@ try:
     tk.Label(dir_selection_frame, text="Project Directory:").pack(side=tk.LEFT, padx=(0, 5))
     project_dir_entry = tk.Entry(dir_selection_frame, width=70);
     project_dir_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-    browse_button = tk.Button(dir_selection_frame, text="Browse...")  # command привяжем позже
+    browse_button = tk.Button(dir_selection_frame, text="Browse...")
     browse_button.pack(side=tk.LEFT, padx=(5, 0))
     create_context_menu(project_dir_entry)
 
@@ -101,11 +93,9 @@ try:
     progress_status_label.grid_remove()
     print("DEBUG: Top controls created.")
 
-    # --- Основная рама ---
     main_frame = tk.Frame(root);
     main_frame.pack(pady=(0, 10), padx=10, fill=tk.BOTH, expand=True)
 
-    # --- Левая часть ---
     left_frame = tk.Frame(main_frame);
     left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
     input_area_frame = tk.Frame(left_frame);
@@ -137,7 +127,6 @@ try:
     clear_button.pack(side=tk.LEFT, padx=5)
     print("DEBUG: Left panel created.")
 
-    # --- Правая часть ---
     right_frame = tk.Frame(main_frame, width=500);
     right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=False);
     right_frame.pack_propagate(False)
@@ -147,16 +136,16 @@ try:
     tree_scrollbar_y = ttk.Scrollbar(tree_view_frame, orient=tk.VERTICAL);
     tree_scrollbar_x = ttk.Scrollbar(tree_view_frame, orient=tk.HORIZONTAL)
     file_tree = ttk.Treeview(tree_view_frame, yscrollcommand=tree_scrollbar_y.set, xscrollcommand=tree_scrollbar_x.set,
-                             selectmode="none"); # selectmode="none" чтобы клик не выделял строку стандартным образом
+                             selectmode="none");
     tree_scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y);
     tree_scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X)
     file_tree.pack(fill=tk.BOTH, expand=True);
     tree_scrollbar_y.config(command=file_tree.yview);
     tree_scrollbar_x.config(command=file_tree.xview)
 
-    # Настройка тегов
     print("DEBUG: Configuring tree tags...")
-    file_tree.tag_configure(CHECKED_TAG, background='#A0D2EB');
+    file_tree.tag_configure(CHECKED_TAG, background='#A0D2EB'); # Полностью выделено
+    file_tree.tag_configure(PARTIALLY_CHECKED_TAG, background='#C8E0F4') # Частично выделено (светлее)
     file_tree.tag_configure('message', foreground='grey');
     file_tree.tag_configure('error', foreground='red', font=('TkDefaultFont', 9, 'italic'))
     file_tree.tag_configure(BINARY_TAG, foreground='#777777', font=('TkDefaultFont', 9, 'italic'));
@@ -166,12 +155,10 @@ try:
     file_tree.tag_configure(ERROR_TAG, foreground='red', font=('TkDefaultFont', 9, 'italic'))
     print("DEBUG: Tree tags configured.")
 
-    # Метка для отображения выделенных токенов (Задача 4)
     selected_tokens_label = tk.Label(right_frame, text="Выделено токенов: 0", anchor=tk.W)
     selected_tokens_label.pack(fill=tk.X, pady=(0, 5), padx=5)
-    file_tree.selected_tokens_label_ref = selected_tokens_label # Сохраняем ссылку для treeview_logic
+    file_tree.selected_tokens_label_ref = selected_tokens_label
 
-    # Привязки и кнопки для Treeview
     file_tree.bind("<Button-1>", lambda event: toggle_check(event, file_tree, selected_tokens_label))
     tree_buttons_frame = tk.Frame(right_frame);
     tree_buttons_frame.pack(fill=tk.X, padx=5)
@@ -181,7 +168,6 @@ try:
     deselect_all_button = tk.Button(tree_buttons_frame, text="Deselect All",
                                     command=lambda: set_all_tree_check_state(file_tree, False, selected_tokens_label));
     deselect_all_button.pack(side=tk.LEFT)
-
 
     copy_options_frame = tk.Frame(right_frame)
     copy_options_frame.pack(fill=tk.X, pady=(5, 0), padx=5)
@@ -206,7 +192,6 @@ try:
     copy_button.pack(fill=tk.X, pady=(5, 5), padx=5)
     print("DEBUG: Right panel created.")
 
-    # --- Нижняя часть: Лог ---
     log_frame = tk.Frame(root);
     log_frame.pack(pady=(0, 10), padx=10, fill=tk.BOTH, expand=True)
     tk.Label(log_frame, text="Log:").pack(anchor=tk.W)
@@ -227,13 +212,10 @@ try:
 
 
     def start_populate(dir_to_populate):
-        print(f"PRINT_DEBUG_MAIN: start_populate called for '{dir_to_populate}'")
+        # print(f"PRINT_DEBUG_MAIN: start_populate called for '{dir_to_populate}'") # Убрано
         try:
-            # При первоначальной загрузке, если что-то выбирается по умолчанию,
-            # selected_tokens_label должен быть обновлен.
-            # Это будет сделано в _process_tree_updates (action "finished")
             populate_file_tree_threaded(dir_to_populate, file_tree, log_widget, progress_bar, progress_status_label)
-            print(f"PRINT_DEBUG_MAIN: populate_file_tree_threaded scheduled/started for '{dir_to_populate}'")
+            # print(f"PRINT_DEBUG_MAIN: populate_file_tree_threaded scheduled/started for '{dir_to_populate}'") # Убрано
         except Exception as e:
             error_msg_start = f"CRITICAL ERROR: Exception during scheduling/starting populate_file_tree_threaded:\n{traceback.format_exc()}"
             print(error_msg_start)
@@ -244,21 +226,21 @@ try:
 
 
     config_file = Path("app_config.json")
-    print(f"DEBUG: Checking config file: {config_file}")
+    # print(f"DEBUG: Checking config file: {config_file}") # Убрано
     if config_file.exists():
-        print(f"DEBUG: Config file exists. Loading...")
+        # print(f"DEBUG: Config file exists. Loading...") # Убрано
         last_dir = None
         try:
             with open(config_file, 'r', encoding='utf-8') as f:
                 config = json.load(f)
             last_dir = config.get("last_project_dir")
-            print(f"DEBUG: Last directory from config: {last_dir}")
+            # print(f"DEBUG: Last directory from config: {last_dir}") # Убрано
             if last_dir and os.path.isdir(last_dir):
                 project_dir_entry.insert(0, last_dir)
-                print(f"DEBUG: Scheduling start_populate for {last_dir} using root.after")
+                # print(f"DEBUG: Scheduling start_populate for {last_dir} using root.after") # Убрано
                 root.after(100, start_populate, last_dir)
             else:
-                print(f"DEBUG: Scheduling start_populate for None (last_dir invalid or not set)")
+                # print(f"DEBUG: Scheduling start_populate for None (last_dir invalid or not set)") # Убрано
                 if not file_tree.get_children(""):
                     root.after(100, lambda: populate_file_tree_threaded(None, file_tree, log_widget, progress_bar,
                                                                         progress_status_label))
@@ -268,7 +250,7 @@ try:
                 root.after(100, lambda: populate_file_tree_threaded(None, file_tree, log_widget, progress_bar,
                                                                     progress_status_label))
     else:
-        print(f"DEBUG: Config file does not exist. Scheduling populate for None (to show message).")
+        # print(f"DEBUG: Config file does not exist. Scheduling populate for None (to show message).") # Убрано
         if not file_tree.get_children(""):
             root.after(100, lambda: populate_file_tree_threaded(None, file_tree, log_widget, progress_bar,
                                                                 progress_status_label))
@@ -288,12 +270,12 @@ try:
     root.protocol("WM_DELETE_WINDOW", on_closing)
 
     try:
-        import tiktoken; print("DEBUG: tiktoken found")
+        import tiktoken; # print("DEBUG: tiktoken found") # Убрано
     except ImportError:
         print("WARNING: tiktoken not found"); log_widget.insert(tk.END, "ПРЕДУПРЕЖДЕНИЕ: tiktoken не найден...\n",
                                                                 ('error',))
     try:
-        import gitignore_parser; print("DEBUG: gitignore-parser found")
+        import gitignore_parser; # print("DEBUG: gitignore-parser found") # Убрано
     except ImportError:
         print("WARNING: gitignore-parser not found"); log_widget.insert(tk.END,
                                                                         "ПРЕДУПРЕЖДЕНИЕ: gitignore-parser не найден...\n",
