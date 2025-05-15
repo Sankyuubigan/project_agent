@@ -15,6 +15,7 @@ try:
     from patching import process_input
     from treeview_logic import (
         populate_file_tree_threaded, toggle_check, set_all_tree_check_state,
+        update_selected_tokens_display, # Добавлено для задачи 4
         CHECKED_TAG, BINARY_TAG, LARGE_FILE_TAG, ERROR_TAG, EXCLUDED_BY_DEFAULT_TAG,
         TOO_MANY_TOKENS_TAG, FOLDER_TAG, FILE_TAG
     )
@@ -22,6 +23,7 @@ try:
         create_context_menu, copy_logs, clear_input_field, select_project_dir
     )
     from clipboard_logic import copy_project_files
+    from file_processing import resource_path # Добавлено для иконки
 
     print("DEBUG: Module imports successful.")
 except ImportError as import_err:
@@ -55,6 +57,26 @@ try:
     style = ttk.Style();
     style.map("Treeview", background=[('selected', '#E0E0E0')], foreground=[('selected', 'black')])
     print("DEBUG: Root window created.")
+
+    # --- Установка иконки окна (Задача 2) ---
+    try:
+        # app_icon.ico находится в project_agent/ (рядом с этим скриптом)
+        icon_file_name = "app_icon.ico"
+        # Сначала пробуем прямой путь (для разработки)
+        if os.path.exists(icon_file_name):
+            root.iconbitmap(icon_file_name)
+            print(f"DEBUG: Window icon set to {icon_file_name}")
+        else:
+            # Затем пробуем через resource_path (для собранного приложения)
+            icon_path_res = resource_path(icon_file_name)
+            if os.path.exists(icon_path_res):
+                root.iconbitmap(icon_path_res)
+                print(f"DEBUG: Window icon set via resource_path to {icon_path_res}")
+            else:
+                print(f"DEBUG: Window icon file '{icon_file_name}' not found directly or via resource_path. Using default.")
+    except Exception as e_icon:
+        print(f"DEBUG: Error setting window icon: {e_icon}")
+
 
     # --- Верхняя часть: Выбор директории и Прогресс-бар ---
     top_controls_frame = tk.Frame(root);
@@ -125,7 +147,7 @@ try:
     tree_scrollbar_y = ttk.Scrollbar(tree_view_frame, orient=tk.VERTICAL);
     tree_scrollbar_x = ttk.Scrollbar(tree_view_frame, orient=tk.HORIZONTAL)
     file_tree = ttk.Treeview(tree_view_frame, yscrollcommand=tree_scrollbar_y.set, xscrollcommand=tree_scrollbar_x.set,
-                             selectmode="none");
+                             selectmode="none"); # selectmode="none" чтобы клик не выделял строку стандартным образом
     tree_scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y);
     tree_scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X)
     file_tree.pack(fill=tk.BOTH, expand=True);
@@ -144,15 +166,22 @@ try:
     file_tree.tag_configure(ERROR_TAG, foreground='red', font=('TkDefaultFont', 9, 'italic'))
     print("DEBUG: Tree tags configured.")
 
-    file_tree.bind("<Button-1>", lambda event: toggle_check(event, file_tree))
+    # Метка для отображения выделенных токенов (Задача 4)
+    selected_tokens_label = tk.Label(right_frame, text="Выделено токенов: 0", anchor=tk.W)
+    selected_tokens_label.pack(fill=tk.X, pady=(0, 5), padx=5)
+    file_tree.selected_tokens_label_ref = selected_tokens_label # Сохраняем ссылку для treeview_logic
+
+    # Привязки и кнопки для Treeview
+    file_tree.bind("<Button-1>", lambda event: toggle_check(event, file_tree, selected_tokens_label))
     tree_buttons_frame = tk.Frame(right_frame);
     tree_buttons_frame.pack(fill=tk.X, padx=5)
     select_all_button = tk.Button(tree_buttons_frame, text="Select All",
-                                  command=lambda: set_all_tree_check_state(file_tree, True));
+                                  command=lambda: set_all_tree_check_state(file_tree, True, selected_tokens_label));
     select_all_button.pack(side=tk.LEFT, padx=(0, 5))
     deselect_all_button = tk.Button(tree_buttons_frame, text="Deselect All",
-                                    command=lambda: set_all_tree_check_state(file_tree, False));
+                                    command=lambda: set_all_tree_check_state(file_tree, False, selected_tokens_label));
     deselect_all_button.pack(side=tk.LEFT)
+
 
     copy_options_frame = tk.Frame(right_frame)
     copy_options_frame.pack(fill=tk.X, pady=(5, 0), padx=5)
@@ -200,6 +229,9 @@ try:
     def start_populate(dir_to_populate):
         print(f"PRINT_DEBUG_MAIN: start_populate called for '{dir_to_populate}'")
         try:
+            # При первоначальной загрузке, если что-то выбирается по умолчанию,
+            # selected_tokens_label должен быть обновлен.
+            # Это будет сделано в _process_tree_updates (action "finished")
             populate_file_tree_threaded(dir_to_populate, file_tree, log_widget, progress_bar, progress_status_label)
             print(f"PRINT_DEBUG_MAIN: populate_file_tree_threaded scheduled/started for '{dir_to_populate}'")
         except Exception as e:
@@ -227,17 +259,17 @@ try:
                 root.after(100, start_populate, last_dir)
             else:
                 print(f"DEBUG: Scheduling start_populate for None (last_dir invalid or not set)")
-                if not file_tree.get_children(""):  # ИСПРАВЛЕНО: tree -> file_tree
+                if not file_tree.get_children(""):
                     root.after(100, lambda: populate_file_tree_threaded(None, file_tree, log_widget, progress_bar,
                                                                         progress_status_label))
         except Exception as e:
             print(f"ERROR: Could not load config: {e}")
-            if not file_tree.get_children(""):  # ИСПРАВЛЕНО: tree -> file_tree
+            if not file_tree.get_children(""):
                 root.after(100, lambda: populate_file_tree_threaded(None, file_tree, log_widget, progress_bar,
                                                                     progress_status_label))
     else:
         print(f"DEBUG: Config file does not exist. Scheduling populate for None (to show message).")
-        if not file_tree.get_children(""):  # ИСПРАВЛЕНО: tree -> file_tree
+        if not file_tree.get_children(""):
             root.after(100, lambda: populate_file_tree_threaded(None, file_tree, log_widget, progress_bar,
                                                                 progress_status_label))
 

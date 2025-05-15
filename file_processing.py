@@ -3,6 +3,7 @@ import os
 import sys
 from pathlib import Path
 import hashlib
+import tkinter as tk # Для log_widget_ref.insert, если он есть
 try:
     import tiktoken
 except ImportError:
@@ -42,38 +43,59 @@ def calculate_file_hash(file_path):
 
 
 def count_file_tokens(file_path_str, log_widget_ref, model_name="gpt-4"):
-    """Подсчитывает токены для файла."""
+    """Подсчитывает токены для файла. Добавлено логирование для Задачи 3."""
+    file_path_obj = Path(file_path_str)
+    file_name_for_log = file_path_obj.name # Для краткости в логах
+
     if not tiktoken:
+        if log_widget_ref:
+            try:
+                log_widget_ref.insert(tk.END, f"ПРЕДУПРЕЖДЕНИЕ: tiktoken не установлен. Токены для '{file_name_for_log}' не посчитаны.\n")
+            except: pass
         return None, "tiktoken не установлен"
 
-    file_path_obj = Path(file_path_str)
     try:
         file_size = file_path_obj.stat().st_size
-        if file_size > MAX_FILE_SIZE_BYTES * 5:
+        if file_size > MAX_FILE_SIZE_BYTES * 5: # Лимит размера файла для попытки чтения
+             if log_widget_ref:
+                 try:
+                     log_widget_ref.insert(tk.END, f"ИНФО: Файл '{file_name_for_log}' ({file_size // (1024*1024)}MB) слишком большой, токены не считаются.\n")
+                 except: pass
              return None, f"файл > {MAX_FILE_SIZE_BYTES*5 // (1024*1024)} MB"
 
         with open(file_path_obj, 'r', encoding='utf-8') as f:
             content = f.read()
 
     except UnicodeDecodeError:
+        if log_widget_ref:
+            try:
+                log_widget_ref.insert(tk.END, f"ИНФО: Файл '{file_name_for_log}' бинарный (ошибка декодирования), токены не считаются.\n")
+            except: pass
         return None, "бинарный (ошибка декодирования)"
-    except OSError as e: # Ловим ошибки ОС (доступ и т.д.)
+    except OSError as e:
+         if log_widget_ref:
+             try:
+                 log_widget_ref.insert(tk.END, f"ОШИБКА: Чтение файла '{file_name_for_log}' для подсчета токенов (ОС): {e.strerror}\n")
+             except: pass
          return None, f"ошибка чтения ОС: {e.strerror}"
-    except Exception as e: # Другие ошибки чтения
+    except Exception as e:
+        if log_widget_ref:
+            try:
+                log_widget_ref.insert(tk.END, f"ОШИБКА: Чтение файла '{file_name_for_log}' для подсчета токенов: {str(e)[:50]}\n")
+            except: pass
         return None, f"ошибка чтения: {str(e)[:50]}"
 
-    if not content.strip():
-        return 0, None
+    if not content.strip(): # Пустой или только пробельные символы
+        return 0, None # 0 токенов, ошибки нет
 
     try:
-        # TODO: Реализовать кэширование энкодера, если будет много вызовов с одной моделью
         encoding = tiktoken.encoding_for_model(model_name)
         num_tokens = len(encoding.encode(content))
         return num_tokens, None
     except Exception as e:
+        log_message = f"ОШИБКА: tiktoken не смог обработать '{file_name_for_log}': {str(e)[:100]}"
         if log_widget_ref:
-            # Безопасно вставляем в лог (если он есть)
             try:
-                 log_widget_ref.insert(tk.END, f"Ошибка tiktoken для {file_path_obj.name}: {e}\n")
-            except: pass # Игнорируем ошибки самого лога
-        return None, "ошибка tiktoken"
+                 log_widget_ref.insert(tk.END, log_message + "\n")
+            except: pass
+        return None, f"ошибка tiktoken: {str(e)[:50]}"
