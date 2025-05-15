@@ -2,11 +2,11 @@
 
 
 a = Analysis(
-    ['apply_changes_gui.py'],
+    ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('change_control_doc.md', '.')],
-    hiddenimports=['pyperclip', 'tkinter.ttk', 'diff_match_patch', 'fnmatch'],
+    datas=[('D:\\Projects\\project_agent\\app_icon.ico', '.'), ('D:\\Projects\\project_agent\\change_control_doc.md', '.'), ('D:\\Programs\\Python\\Python312\\Lib\\site-packages\\tiktoken', 'tiktoken')],
+    hiddenimports=['pyperclip', 'tkinter.ttk', 'diff_match_patch', 'fnmatch', 'tiktoken', 'tiktoken_ext', 'tiktoken_ext.openai_public', 'tiktoken_ext.cl100k_base', 'regex', 'charset_normalizer', 'idna', 'gitignore_parser'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -22,7 +22,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='ApplyDiffGUI',
+    name='project_agent',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -35,5 +35,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['icon_launch.ico'],
+    icon=['D:\\Projects\\project_agent\\app_icon.ico'],
 )

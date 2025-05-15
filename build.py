@@ -18,7 +18,7 @@ def check_upx():
 
 
 def build_executable():
-    script_name = "apply_changes_gui.py"
+    script_name = "main.py"
     base_output_name = "project_agent" # Для .spec и начального .exe
     icon_path_for_exe = "app_icon.ico" # Иконка для .exe (Задача 2)
     control_doc_name = "change_control_doc.md"
