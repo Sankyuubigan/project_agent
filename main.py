@@ -7,6 +7,15 @@ from tkinter import ttk, scrolledtext, messagebox
 from pathlib import Path
 import json
 import traceback
+from datetime import datetime # <--- ДОБАВЛЕНО
+
+# --- ФОРМИРУЕМ ВЕРСИЮ ПРОГРАММЫ ДИНАМИЧЕСКИ ---
+try:
+    current_date = datetime.now()
+    APP_VERSION = current_date.strftime("%y.%m.%d")
+except Exception:
+    APP_VERSION = "unknown" # На случай непредвиденной ошибки
+# -------------------------------------------
 
 print("DEBUG: Standard imports done.")
 
@@ -15,7 +24,7 @@ try:
     from treeview_logic import (
         populate_file_tree_threaded, toggle_check, set_all_tree_check_state,
         update_selected_tokens_display,
-        CHECKED_TAG, PARTIALLY_CHECKED_TAG, # Добавлен PARTIALLY_CHECKED_TAG
+        CHECKED_TAG, PARTIALLY_CHECKED_TAG, 
         BINARY_TAG, LARGE_FILE_TAG, ERROR_TAG, EXCLUDED_BY_DEFAULT_TAG,
         TOO_MANY_TOKENS_TAG, FOLDER_TAG, FILE_TAG
     )
@@ -50,7 +59,9 @@ except Exception as general_import_err:
 try:
     print("DEBUG: Creating root window...")
     root = tk.Tk();
-    root.title("Apply Project Changes");
+    # --- УСТАНАВЛИВАЕМ ЗАГОЛОВОК С ДИНАМИЧЕСКОЙ ВЕРСИЕЙ ---
+    root.title(f"Project Agent v{APP_VERSION}"); 
+    # -----------------------------------------------------
     root.geometry("1100x850")
     style = ttk.Style();
     style.map("Treeview", background=[('selected', '#E0E0E0')], foreground=[('selected', 'black')])
@@ -136,7 +147,7 @@ try:
     tree_scrollbar_y = ttk.Scrollbar(tree_view_frame, orient=tk.VERTICAL);
     tree_scrollbar_x = ttk.Scrollbar(tree_view_frame, orient=tk.HORIZONTAL)
     file_tree = ttk.Treeview(tree_view_frame, yscrollcommand=tree_scrollbar_y.set, xscrollcommand=tree_scrollbar_x.set,
-                             selectmode="none");
+                             selectmode="none"); 
     tree_scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y);
     tree_scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X)
     file_tree.pack(fill=tk.BOTH, expand=True);
@@ -144,20 +155,20 @@ try:
     tree_scrollbar_x.config(command=file_tree.xview)
 
     print("DEBUG: Configuring tree tags...")
-    file_tree.tag_configure(CHECKED_TAG, background='#A0D2EB'); # Полностью выделено
-    file_tree.tag_configure(PARTIALLY_CHECKED_TAG, background='#C8E0F4') # Частично выделено (светлее)
+    file_tree.tag_configure(CHECKED_TAG, background='#A0D2EB'); 
+    file_tree.tag_configure(PARTIALLY_CHECKED_TAG, background='#C8E0F4') 
     file_tree.tag_configure('message', foreground='grey');
     file_tree.tag_configure('error', foreground='red', font=('TkDefaultFont', 9, 'italic'))
     file_tree.tag_configure(BINARY_TAG, foreground='#777777', font=('TkDefaultFont', 9, 'italic'));
     file_tree.tag_configure(LARGE_FILE_TAG, foreground='#CC7A00', font=('TkDefaultFont', 9, 'italic'))
-    file_tree.tag_configure(EXCLUDED_BY_DEFAULT_TAG, foreground='#006400', font=('TkDefaultFont', 9, 'italic'));
-    file_tree.tag_configure(TOO_MANY_TOKENS_TAG, foreground='#8A2BE2', font=('TkDefaultFont', 9, 'italic'))
-    file_tree.tag_configure(ERROR_TAG, foreground='red', font=('TkDefaultFont', 9, 'italic'))
+    file_tree.tag_configure(EXCLUDED_BY_DEFAULT_TAG, foreground='#006400', font=('TkDefaultFont', 9, 'italic')); 
+    file_tree.tag_configure(TOO_MANY_TOKENS_TAG, foreground='#8A2BE2', font=('TkDefaultFont', 9, 'italic')) 
+    file_tree.tag_configure(ERROR_TAG, foreground='red', font=('TkDefaultFont', 9, 'italic')) 
     print("DEBUG: Tree tags configured.")
 
     selected_tokens_label = tk.Label(right_frame, text="Выделено токенов: 0", anchor=tk.W)
     selected_tokens_label.pack(fill=tk.X, pady=(0, 5), padx=5)
-    file_tree.selected_tokens_label_ref = selected_tokens_label
+    file_tree.selected_tokens_label_ref = selected_tokens_label 
 
     file_tree.bind("<Button-1>", lambda event: toggle_check(event, file_tree, selected_tokens_label))
     tree_buttons_frame = tk.Frame(right_frame);
@@ -199,11 +210,21 @@ try:
                                            state='normal');
     log_widget.pack(fill=tk.BOTH, expand=True)
     create_context_menu(log_widget)
+    
+    try:
+        log_widget.tag_config('error', foreground='red')
+        log_widget.tag_config('warning', foreground='orange') 
+        log_widget.tag_config('success', foreground='green')
+        log_widget.tag_config('info', foreground='blue') 
+    except tk.TclError: 
+        print("DEBUG: Could not configure log tags, widget might not be fully ready or error during setup.")
+        pass 
+
     copy_log_button = tk.Button(log_frame, text="Copy Logs", command=lambda: copy_logs(log_widget));
     copy_log_button.pack(pady=(5, 0), anchor=tk.E, padx=(0, 5))
     print("DEBUG: Log panel created.")
 
-    file_tree.log_widget_ref = log_widget
+    file_tree.log_widget_ref = log_widget 
     print("DEBUG: file_tree.log_widget_ref assigned.")
 
     browse_button.config(command=lambda: select_project_dir(project_dir_entry, file_tree, log_widget, progress_bar,
@@ -211,49 +232,38 @@ try:
     print("DEBUG: Browse button command configured.")
 
 
-    def start_populate(dir_to_populate):
-        # print(f"PRINT_DEBUG_MAIN: start_populate called for '{dir_to_populate}'") # Убрано
+    def start_populate(dir_to_populate, is_initial_load=False):
         try:
-            populate_file_tree_threaded(dir_to_populate, file_tree, log_widget, progress_bar, progress_status_label)
-            # print(f"PRINT_DEBUG_MAIN: populate_file_tree_threaded scheduled/started for '{dir_to_populate}'") # Убрано
+            populate_file_tree_threaded(dir_to_populate, file_tree, log_widget, progress_bar, progress_status_label, force_rescan=not is_initial_load)
         except Exception as e:
             error_msg_start = f"CRITICAL ERROR: Exception during scheduling/starting populate_file_tree_threaded:\n{traceback.format_exc()}"
             print(error_msg_start)
             try:
-                log_widget.insert(tk.END, error_msg_start + "\n")
+                log_widget.insert(tk.END, error_msg_start + "\n", ('error',))
             except:
                 pass
 
 
     config_file = Path("app_config.json")
-    # print(f"DEBUG: Checking config file: {config_file}") # Убрано
     if config_file.exists():
-        # print(f"DEBUG: Config file exists. Loading...") # Убрано
         last_dir = None
         try:
             with open(config_file, 'r', encoding='utf-8') as f:
                 config = json.load(f)
             last_dir = config.get("last_project_dir")
-            # print(f"DEBUG: Last directory from config: {last_dir}") # Убрано
             if last_dir and os.path.isdir(last_dir):
                 project_dir_entry.insert(0, last_dir)
-                # print(f"DEBUG: Scheduling start_populate for {last_dir} using root.after") # Убрано
-                root.after(100, start_populate, last_dir)
+                root.after(100, lambda: start_populate(last_dir, is_initial_load=True))
             else:
-                # print(f"DEBUG: Scheduling start_populate for None (last_dir invalid or not set)") # Убрано
                 if not file_tree.get_children(""):
-                    root.after(100, lambda: populate_file_tree_threaded(None, file_tree, log_widget, progress_bar,
-                                                                        progress_status_label))
+                    root.after(100, lambda: populate_file_tree_threaded(None, file_tree, log_widget, progress_bar, progress_status_label, force_rescan=False)) 
         except Exception as e:
             print(f"ERROR: Could not load config: {e}")
             if not file_tree.get_children(""):
-                root.after(100, lambda: populate_file_tree_threaded(None, file_tree, log_widget, progress_bar,
-                                                                    progress_status_label))
+                root.after(100, lambda: populate_file_tree_threaded(None, file_tree, log_widget, progress_bar, progress_status_label, force_rescan=False))
     else:
-        # print(f"DEBUG: Config file does not exist. Scheduling populate for None (to show message).") # Убрано
         if not file_tree.get_children(""):
-            root.after(100, lambda: populate_file_tree_threaded(None, file_tree, log_widget, progress_bar,
-                                                                progress_status_label))
+            root.after(100, lambda: populate_file_tree_threaded(None, file_tree, log_widget, progress_bar, progress_status_label, force_rescan=False))
 
 
     def on_closing():
@@ -270,16 +280,13 @@ try:
     root.protocol("WM_DELETE_WINDOW", on_closing)
 
     try:
-        import tiktoken; # print("DEBUG: tiktoken found") # Убрано
+        import tiktoken; 
     except ImportError:
-        print("WARNING: tiktoken not found"); log_widget.insert(tk.END, "ПРЕДУПРЕЖДЕНИЕ: tiktoken не найден...\n",
-                                                                ('error',))
+        print("WARNING: tiktoken not found"); log_widget.insert(tk.END, "ПРЕДУПРЕЖДЕНИЕ: tiktoken не найден...\n", ('warning',))
     try:
-        import gitignore_parser; # print("DEBUG: gitignore-parser found") # Убрано
+        import gitignore_parser; 
     except ImportError:
-        print("WARNING: gitignore-parser not found"); log_widget.insert(tk.END,
-                                                                        "ПРЕДУПРЕЖДЕНИЕ: gitignore-parser не найден...\n",
-                                                                        ('error',))
+        print("WARNING: gitignore-parser not found"); log_widget.insert(tk.END, "ПРЕДУПРЕЖДЕНИЕ: gitignore-parser не найден...\n", ('warning',))
 
     print("DEBUG: Starting mainloop...")
     root.mainloop()

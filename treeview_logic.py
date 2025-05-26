@@ -63,7 +63,7 @@ def get_item_status_tags_and_info(item_path_obj: Path, item_name: str, is_dir: b
                     status_msg = token_error
                     token_count = None 
                     if "бинарный" in token_error and BINARY_TAG not in tags: tags.append(BINARY_TAG)
-                    elif "tiktoken" in token_error and ERROR_TAG not in tags: tags.append(ERROR_TAG)
+                    elif "tiktoken" in token_error and ERROR_TAG not in tags: tags.append(ERROR_TAG) # Используем ERROR_TAG для ошибок tiktoken
                 elif token_count_val is not None: 
                     token_count = token_count_val
                     if token_count > MAX_TOKENS_FOR_DISPLAY:
@@ -106,7 +106,7 @@ def _update_tree_item_display(tree, item_id, item_name, token_count, status_msg,
         if tree.exists(item_id):
             tree.item(item_id, text=display_name)
     except tk.TclError:
-        pass 
+        pass # Игнорируем ошибку, если элемент уже удален
 
 
 def update_selected_tokens_display(tree, label_widget): 
@@ -130,9 +130,7 @@ def update_selected_tokens_display(tree, label_widget):
         try:
             item_tags = set(tree.item(item_id, 'tags'))
             item_data = tree_item_data[item_id]
-            # Токены суммируются, если элемент выбран (CHECKED_TAG) ИЛИ частично выбран (PARTIALLY_CHECKED_TAG для папок)
-            # и при этом он является файлом и не отключен по другим причинам.
-            # Папки сами по себе не добавляют токены в этот счетчик, их токены - это сумма файлов.
+            
             if (CHECKED_TAG in item_tags or PARTIALLY_CHECKED_TAG in item_tags) and \
                not DISABLED_LOOK_TAGS.intersection(item_tags) and \
                item_data.get('is_file'):
@@ -142,7 +140,7 @@ def update_selected_tokens_display(tree, label_widget):
         except tk.TclError: continue 
             
     try:
-        formatted_tokens = f"{total_selected_tokens:,}".replace(",", " ")
+        formatted_tokens = f"{int(total_selected_tokens):,}".replace(",", " ") # int() для случая float
         label_widget.config(text=f"Выделено токенов: {formatted_tokens}")
     except tk.TclError: pass 
     except Exception: pass
@@ -154,7 +152,7 @@ def _process_tree_updates(tree, progress_bar, progress_label, log_widget_ref):
         return
 
     gui_update_call_counter += 1
-    items_processed_this_cycle = 0; max_items = 150 # Немного увеличил для ускорения
+    items_processed_this_cycle = 0; max_items = 150 
     log_prefix_gui = "LOG_GUI: "
 
     try:
@@ -193,15 +191,11 @@ def _process_tree_updates(tree, progress_bar, progress_label, log_widget_ref):
                                                        data_dict.get('is_dir', False))
                     elif action == "update_node_text": 
                          item_id, name, tokens, status, is_dir_flag = data
-                         # if log_widget_ref: # Убираем избыточный лог, оставим только для ошибок
-                         #     log_widget_ref.insert(tk.END, f"{log_prefix_gui}Обновление узла '{name}': токены={tokens}, статус='{status}', папка={is_dir_flag}\n")
                          if tree.exists(item_id):
                              _update_tree_item_display(tree, item_id, name, tokens, status, is_dir_flag)
                              if item_id in tree_item_data: 
                                  tree_item_data[item_id]['tokens'] = tokens
                                  tree_item_data[item_id]['status_msg'] = status
-                             # else: # Этот лог теперь не нужен, т.к. проблема была не здесь
-                             #    if log_widget_ref: log_widget_ref.insert(tk.END, f"{log_prefix_gui}ПРЕДУПРЕЖДЕНИЕ: Узел '{name}' (ID: {Path(item_id).name}) не найден в tree_item_data при попытке update_node_text.\n")
                     elif action == "finished":
                         if log_widget_ref: log_widget_ref.insert(tk.END, f"{log_prefix_gui}Сигнал 'finished' получен.\n")
                         progress_bar.stop(); progress_bar.config(mode='determinate', value=0)
@@ -211,7 +205,7 @@ def _process_tree_updates(tree, progress_bar, progress_label, log_widget_ref):
                         label_ref_for_finish = getattr(tree, 'selected_tokens_label_ref', None)
                         root_items = tree.get_children("")
                         if root_items:
-                            set_all_tree_check_state(tree, True, label_ref_for_finish) # Это обновит и счетчик токенов
+                            set_all_tree_check_state(tree, True, label_ref_for_finish) 
                         elif label_ref_for_finish: 
                             update_selected_tokens_display(tree, label_ref_for_finish)
                             
@@ -220,8 +214,16 @@ def _process_tree_updates(tree, progress_bar, progress_label, log_widget_ref):
                         return 
                     elif action == "log_message":
                          if log_widget_ref:
+                            log_tags = ()
+                            if isinstance(data, tuple) and len(data) == 2: # (message, tag_tuple)
+                                msg, log_tags = data
+                            elif isinstance(data, str):
+                                msg = data
+                            else:
+                                msg = str(data) # На всякий случай
+                            
                             try:
-                                log_widget_ref.insert(tk.END, f"{data}\n")
+                                log_widget_ref.insert(tk.END, f"{msg}\n", log_tags)
                             except tk.TclError: pass 
                 except tk.TclError as e:
                     if log_widget_ref: log_widget_ref.insert(tk.END, f"{log_prefix_gui}TclError ({action}, item: '{item_name_for_log}'): {e}\n", ('error',))
@@ -231,17 +233,16 @@ def _process_tree_updates(tree, progress_bar, progress_label, log_widget_ref):
                 break 
     finally:
         if gui_queue_processor_running: 
-            tree.after(50, lambda: _process_tree_updates(tree, progress_bar, progress_label, log_widget_ref))
+            tree.after(50, lambda pbr=progress_bar, plr=progress_label, lwr=log_widget_ref: _process_tree_updates(tree, pbr, plr, lwr))
         else: 
             if progress_bar.winfo_ismapped(): 
                  progress_bar.stop(); progress_bar.grid_remove(); progress_label.grid_remove()
-            # if log_widget_ref: log_widget_ref.insert(tk.END, f"{log_prefix_gui}Обработчик очереди остановлен (по флагу).\n") # Убрано
             label_ref_final = getattr(tree, 'selected_tokens_label_ref', None)
             if label_ref_final:
                 update_selected_tokens_display(tree, label_ref_final)
 
 
-def populate_file_tree_threaded(directory_path_str, tree, log_widget_ref, progress_bar_ref, progress_label_ref):
+def populate_file_tree_threaded(directory_path_str, tree, log_widget_ref, progress_bar_ref, progress_label_ref, force_rescan=False):
     global populate_thread, tree_item_paths, tree_item_data, gitignore_matcher, gui_queue_processor_running, last_processed_dir, gui_update_call_counter
     log_prefix_main = "LOG_POPULATE: "
 
@@ -254,14 +255,13 @@ def populate_file_tree_threaded(directory_path_str, tree, log_widget_ref, progre
         try: current_normalized_path = str(Path(directory_path_str).resolve()); valid_path = True
         except: pass
 
-    if valid_path and current_normalized_path == last_processed_dir and tree.get_children(""):
-        if log_widget_ref: log_widget_ref.insert(tk.END, f"{log_prefix_main}Директория '{Path(directory_path_str).name}' уже отображена.\n"); return
+    if not force_rescan and valid_path and current_normalized_path == last_processed_dir and tree.get_children(""):
+        if log_widget_ref: log_widget_ref.insert(tk.END, f"{log_prefix_main}Директория '{Path(directory_path_str).name}' уже отображена. Для обновления выберите снова или используйте кнопку 'Обновить' (если есть).\n"); return
 
     while not update_queue.empty():
         try: update_queue.get_nowait()
         except queue.Empty: break
-    # if log_widget_ref: log_widget_ref.insert(tk.END, f"{log_prefix_main}Очередь GUI очищена.\n") # Убрано
-
+    
     tree_item_paths.clear(); tree_item_data.clear(); gitignore_matcher = None
     last_processed_dir = current_normalized_path if valid_path else None 
     gui_update_call_counter = 0
@@ -277,7 +277,8 @@ def populate_file_tree_threaded(directory_path_str, tree, log_widget_ref, progre
     
     if not gui_queue_processor_running:
         gui_queue_processor_running = True
-        tree.after_idle(lambda: _process_tree_updates(tree, progress_bar_ref, progress_label_ref, log_widget_ref))
+        tree.after_idle(lambda pbr=progress_bar_ref, plr=progress_label_ref, lwr=log_widget_ref: _process_tree_updates(tree, pbr, plr, lwr))
+
 
     if valid_path: 
         populate_thread = threading.Thread(target=_populate_file_tree_actual,
@@ -287,34 +288,26 @@ def populate_file_tree_threaded(directory_path_str, tree, log_widget_ref, progre
             populate_thread.start()
         except Exception as thread_start_err:
              if log_widget_ref: log_widget_ref.insert(tk.END, f"{log_prefix_main}КРИТ.ОШИБКА: Не удалось запустить поток: {thread_start_err}\n", ('error',))
-             update_queue.put(("log_message", f"{log_prefix_main}КРИТ.ОШИБКА: Не удалось запустить поток: {thread_start_err}"))
+             update_queue.put(("log_message", (f"{log_prefix_main}КРИТ.ОШИБКА: Не удалось запустить поток: {thread_start_err}", ('error',))))
              update_queue.put(("finished", None)) 
 
 
 def _populate_file_tree_actual(directory_path_str, log_widget_ref):
     global gitignore_matcher, update_queue
     thread_name = threading.current_thread().name
-    log_prefix = f"LOG_THREAD ({thread_name}): " # Оставим для отладки потока, если что
+    log_prefix = f"LOG_THREAD ({thread_name}): " 
     try:
-        # update_queue.put(("log_message", f"{log_prefix}Поток стартовал для '{directory_path_str}'.")) # Убрано
         root_dir_obj = Path(directory_path_str).resolve()
-        # update_queue.put(("log_message", f"{log_prefix}Путь разрешен: {root_dir_obj}")) # Убрано
-
-        # update_queue.put(("log_message", f"{log_prefix}Загрузка .gitignore...")) # Убрано
+        
         gitignore_matcher = None
         if parse_gitignore:
             gitignore_file = root_dir_obj / ".gitignore"
             if gitignore_file.is_file():
                 try: 
                     gitignore_matcher = parse_gitignore(gitignore_file)
-                    # update_queue.put(("log_message", f"{log_prefix}.gitignore загружен.")) # Убрано
                 except Exception as e: 
-                    update_queue.put(("log_message", f"{log_prefix}ПРЕДУПРЕЖДЕНИЕ: Ошибка разбора .gitignore: {e}"))
-            # else: # Убираем сообщение, если .gitignore не найден - это нормальная ситуация
-            #     update_queue.put(("log_message", f"{log_prefix}Файл .gitignore не найден в {root_dir_obj}."))
-        # else:  # Это уже логируется в GUI при старте
-        #     update_queue.put(("log_message", f"{log_prefix}ПРЕДУПРЕЖДЕНИЕ: gitignore-parser не найден."))
-
+                    update_queue.put(("log_message", (f"{log_prefix}ПРЕДУПРЕЖДЕНИЕ: Ошибка разбора .gitignore: {e}", ('warning',))))
+        
         update_queue.put(("progress_start", 1)) 
         dir_name = root_dir_obj.name; root_node_id = str(root_dir_obj)
         
@@ -322,21 +315,19 @@ def _populate_file_tree_actual(directory_path_str, log_widget_ref):
         update_queue.put(("add_node", ("", root_node_id, dir_name, (FOLDER_TAG, CHECKED_TAG), str(root_dir_obj), root_data)))
         
         folder_tokens = _populate_recursive_threaded(root_dir_obj, root_node_id, root_dir_obj, log_widget_ref)
-        # update_queue.put(("log_message", f"{log_prefix}Корневая папка '{dir_name}' получила токенов: {folder_tokens}")) # Убрано
 
         if isinstance(folder_tokens, (int, float)) and folder_tokens >=0:
             update_queue.put(("update_node_text", (root_node_id, dir_name, folder_tokens, "", True))) 
         else: 
-            update_queue.put(("log_message", f"{log_prefix}ПРЕДУПРЕЖДЕНИЕ: Для корневой папки '{dir_name}' токены не были числом: {folder_tokens}."))
+            update_queue.put(("log_message", (f"{log_prefix}ПРЕДУПРЕЖДЕНИЕ: Для корневой папки '{dir_name}' токены не были числом: {folder_tokens}.", ('warning',))))
             update_queue.put(("update_node_text", (root_node_id, dir_name, 0, "ошибка подсчета токенов", True)))
 
     except Exception as e:
         error_msg = f"Критическая ошибка в потоке {thread_name} при обработке '{directory_path_str}': {str(e)}"
-        update_queue.put(("log_message", f"LOG_THREAD_ERROR: {error_msg}\n{traceback.format_exc()}"))
+        update_queue.put(("log_message", (f"LOG_THREAD_ERROR: {error_msg}\n{traceback.format_exc()}", ('error',))))
         try: update_queue.put(("add_node", ("", f"error_root_{thread_name}", error_msg[:100], ('error',), directory_path_str, {'name_only': "Ошибка потока", 'is_dir': False, 'is_file': False, 'status_msg':error_msg[:100], 'tokens':0})))
         except: pass
     finally:
-        # update_queue.put(("log_message", f"{log_prefix}Завершение работы потока.")) # Убрано
         update_queue.put(("finished", None)) 
 
 
@@ -350,8 +341,8 @@ def _populate_recursive_threaded(current_dir_obj, parent_id_str, root_dir_obj, l
         items = []
         if not current_dir_obj.is_dir(): 
             status_msg_for_parent = f"Ошибка: '{current_dir_name_for_log}' не директория или нет доступа"
-            # update_queue.put(("log_message", f"{log_prefix_thread_rec}{status_msg_for_parent}")) # Уже логируется в GUI
-            update_queue.put(("update_node_text", (parent_id_str, current_dir_name_for_log, 0, status_msg_for_parent, False)))
+            update_queue.put(("log_message", (f"{log_prefix_thread_rec}{status_msg_for_parent}", ('error',))))
+            update_queue.put(("update_node_text", (parent_id_str, current_dir_name_for_log, 0, status_msg_for_parent, False))) # is_dir должен быть True для папки
             return 0 
 
         for item in current_dir_obj.iterdir(): items.append(item)
@@ -388,32 +379,28 @@ def _populate_recursive_threaded(current_dir_obj, parent_id_str, root_dir_obj, l
                 if isinstance(tokens_from_subdir, (int,float)) and tokens_from_subdir >= 0:
                     total_tokens_in_folder += tokens_from_subdir
                     current_folder_status_for_update = data_dict.get('status_msg', "") 
-                    # update_queue.put(("log_message", f"{log_prefix_thread_rec}ОТПРАВКА update_node_text для папки '{item_name}' с токенами: {tokens_from_subdir}")) # Убрано
                     update_queue.put(("update_node_text", (item_id_str, item_name, tokens_from_subdir, current_folder_status_for_update, True)))
-                # else: # Логирование некорректных токенов происходит в count_file_tokens или GUI
-                    # update_queue.put(("log_message", f"{log_prefix_thread_rec}ПРЕДУПРЕЖДЕНИЕ: Подпапка '{item_name}' вернула некорректные токены: {tokens_from_subdir}."))
             
             elif file_tokens_for_item is not None and isinstance(file_tokens_for_item, (int, float)) and file_tokens_for_item >=0:
                 total_tokens_in_folder += file_tokens_for_item
         
     except PermissionError:
         perm_error_msg = f"Отказ в доступе к '{current_dir_name_for_log}'"
-        update_queue.put(("log_message", f"{log_prefix_thread_rec}ПРЕДУПРЕЖДЕНИЕ: {perm_error_msg}"))
+        update_queue.put(("log_message", (f"{log_prefix_thread_rec}ПРЕДУПРЕЖДЕНИЕ: {perm_error_msg}", ('warning',))))
         item_id_of_current_dir = str(current_dir_obj.resolve())
-        update_queue.put(("update_node_text", (item_id_of_current_dir, current_dir_obj.name, 0, perm_error_msg, True)))
+        update_queue.put(("update_node_text", (item_id_of_current_dir, current_dir_obj.name, 0, perm_error_msg, True))) # is_dir должен быть True
     except Exception as e:
         gen_error_msg = f"Ошибка при обработке '{current_dir_name_for_log}': {e}"
-        update_queue.put(("log_message", f"{log_prefix_thread_rec}{gen_error_msg}\n{traceback.format_exc()}"))
+        update_queue.put(("log_message", (f"{log_prefix_thread_rec}{gen_error_msg}\n{traceback.format_exc()}", ('error',))))
         item_id_of_current_dir = str(current_dir_obj.resolve())
-        update_queue.put(("update_node_text", (item_id_of_current_dir, current_dir_obj.name, 0, str(e)[:50], True)))
+        update_queue.put(("update_node_text", (item_id_of_current_dir, current_dir_obj.name, 0, str(e)[:50], True))) # is_dir должен быть True
     
-    # update_queue.put(("log_message", f"{log_prefix_thread_rec}Завершение обхода для '{current_dir_name_for_log}'. Возвращено токенов: {total_tokens_in_folder}")) # Убрано
     return total_tokens_in_folder
 
 
 def generate_project_structure_text(tree, root_dir_path_str, log_widget_ref): 
     if not root_dir_path_str or not os.path.isdir(root_dir_path_str):
-        if log_widget_ref: log_widget_ref.insert(tk.END, "Структура: Корневая директория не задана или не существует.\n")
+        if log_widget_ref: log_widget_ref.insert(tk.END, "Структура: Корневая директория не задана или не существует.\n", ('warning',))
         return "Структура не сгенерирована: неверная корневая директория."
 
     structure_lines = ["Структура проекта:"]
@@ -446,14 +433,12 @@ def generate_project_structure_text(tree, root_dir_path_str, log_widget_ref):
         prefix = '    ' * indent_level
         entry = f"{prefix}- {rel_path_posix}"
         
-        # Для структуры важен CHECKED_TAG или PARTIALLY_CHECKED_TAG
         current_item_tags = set(tree.item(item_id, 'tags'))
         item_is_fully_or_partially_checked = bool({CHECKED_TAG, PARTIALLY_CHECKED_TAG}.intersection(current_item_tags))
 
 
         if item_info.get('is_dir'):
             entry_suffix = "/"
-            # Показываем сводку, если папка не выбрана (ни полностью, ни частично)
             should_show_summary = not item_is_fully_or_partially_checked
 
             if should_show_summary:
@@ -472,7 +457,6 @@ def generate_project_structure_text(tree, root_dir_path_str, log_widget_ref):
 
             structure_lines.append(entry + entry_suffix)
 
-            # Рекурсируем, только если текущая папка выбрана (полностью или частично)
             if item_is_fully_or_partially_checked: 
                 try:
                     children_ids = tree.get_children(item_id)
@@ -484,12 +468,17 @@ def generate_project_structure_text(tree, root_dir_path_str, log_widget_ref):
                         _generate_recursive(child_id, indent_level + 1)
                 except tk.TclError: pass 
         
-        else: 
-            structure_lines.append(entry)
+        else: # Это файл
+            if item_is_fully_or_partially_checked and not DISABLED_LOOK_TAGS.intersection(current_item_tags):
+                structure_lines.append(entry)
+            elif not item_is_fully_or_partially_checked: # Файл не выбран, но структуру показываем
+                 structure_lines.append(entry + " (не выбран)")
+            # else: файл отключен (бинарный и т.д.), не добавляем в структуру, если он выбран, но отключен
+            
             
     root_ids = tree.get_children("") 
     if not root_ids:
-        if log_widget_ref: log_widget_ref.insert(tk.END, "Структура: Дерево пусто.\n")
+        if log_widget_ref: log_widget_ref.insert(tk.END, "Структура: Дерево пусто.\n", ('warning',))
         return "Структура не сгенерирована: дерево пусто."
 
     sorted_root_ids = sorted(root_ids, key=lambda cid: (
@@ -501,7 +490,7 @@ def generate_project_structure_text(tree, root_dir_path_str, log_widget_ref):
         _generate_recursive(root_id, 0) 
 
     if len(structure_lines) <= 1: 
-        if log_widget_ref: log_widget_ref.insert(tk.END, "Структура: Нет элементов для отображения.\n")
+        if log_widget_ref: log_widget_ref.insert(tk.END, "Структура: Нет элементов для отображения (убедитесь, что файлы выбраны).\n", ('warning',))
         return "Структура не сгенерирована: нет элементов для отображения."
     return "\n".join(structure_lines)
 
@@ -513,19 +502,7 @@ def toggle_check(event, tree, selected_tokens_label_ref):
     region = tree.identify("region", event.x, event.y)
     element_clicked = tree.identify_element(event.x, event.y)
     
-    # log_widget_ref_debug = getattr(tree, 'log_widget_ref', None) # Убрано
-    # if log_widget_ref_debug: # Убрано
-    #     try:
-    #         item_name_debug = tree_item_data.get(item_id, {}).get('name_only', Path(item_id).name)
-    #         log_widget_ref_debug.insert(tk.END, f"DEBUG_CLICK_V2: Клик по '{item_name_debug}', region='{region}', element='{element_clicked}'.\n")
-    #     except: pass
-
     if region == "indicator" or (isinstance(element_clicked, str) and ".indicator" in element_clicked):
-        # if log_widget_ref_debug: # Убрано
-            # try:
-                # item_name_debug = tree_item_data.get(item_id, {}).get('name_only', Path(item_id).name)
-                # log_widget_ref_debug.insert(tk.END, f"DEBUG_CLICK_V2: Клик по индикатору для '{item_name_debug}' подтвержден. Изменение чекбокса пропущено.\n")
-            # except: pass
         return 
 
     current_tags = set(tree.item(item_id, 'tags'))
@@ -541,14 +518,9 @@ def toggle_check(event, tree, selected_tokens_label_ref):
              except: pass
         return
     
-    # Если элемент был частично выбран, а мы кликаем на него, он должен стать полностью выбранным.
-    # Если он был полностью выбран, он становится невыбранным.
-    # Если он не был выбран, он становится полностью выбранным.
     new_state_is_checked = True
     if CHECKED_TAG in current_tags:
         new_state_is_checked = False
-    # PARTIALLY_CHECKED_TAG сам по себе не переключается кликом по родительскому элементу,
-    # он является результатом состояния дочерних.
 
     set_check_state_recursive(tree, item_id, new_state_is_checked, selected_tokens_label_ref)
     _update_parent_check_state_recursive(tree, item_id, selected_tokens_label_ref)
@@ -563,14 +535,12 @@ def set_check_state_recursive(tree, item_id, state, selected_tokens_label_ref):
     current_tags = set(tree.item(item_id, 'tags'))
     is_disabled_by_look = bool(DISABLED_LOOK_TAGS.intersection(current_tags))
     
-    # Снимаем предыдущие теги выделения
     current_tags.discard(CHECKED_TAG)
     current_tags.discard(PARTIALLY_CHECKED_TAG)
 
     if not is_disabled_by_look: 
         if state: 
             current_tags.add(CHECKED_TAG)
-        # Если state is False, то оба тега (CHECKED_TAG и PARTIALLY_CHECKED_TAG) уже сняты.
     
     tree.item(item_id, tags=tuple(current_tags))
 
@@ -588,15 +558,15 @@ def _update_parent_check_state_recursive(tree, item_id, selected_tokens_label_re
     if not parent_id or not tree.exists(parent_id): return
 
     parent_tags_set = set(tree.item(parent_id, 'tags'))
-    if DISABLED_LOOK_TAGS.intersection(parent_tags_set):
-        _update_parent_check_state_recursive(tree, parent_id, selected_tokens_label_ref)
+    if DISABLED_LOOK_TAGS.intersection(parent_tags_set): # Если сама родительская папка "отключена"
+        _update_parent_check_state_recursive(tree, parent_id, selected_tokens_label_ref) # Проверяем ее родителя
         return
 
     all_children_ids = []
     try: all_children_ids = tree.get_children(parent_id)
     except tk.TclError: return 
 
-    if not all_children_ids:
+    if not all_children_ids: # У родителя нет детей (или они были удалены)
         parent_tags_set.discard(CHECKED_TAG)
         parent_tags_set.discard(PARTIALLY_CHECKED_TAG)
         tree.item(parent_id, tags=tuple(parent_tags_set))
@@ -604,7 +574,7 @@ def _update_parent_check_state_recursive(tree, item_id, selected_tokens_label_re
         return
 
     all_active_children_fully_checked = True
-    any_active_child_checked_or_partially = False # Включает и частично выбранные подпапки
+    any_active_child_checked_or_partially = False 
     has_active_children = False
 
     for child_id in all_children_ids:
@@ -612,13 +582,17 @@ def _update_parent_check_state_recursive(tree, item_id, selected_tokens_label_re
         child_tags = set(tree.item(child_id, 'tags'))
         if not DISABLED_LOOK_TAGS.intersection(child_tags):
             has_active_children = True
-            if CHECKED_TAG not in child_tags and PARTIALLY_CHECKED_TAG not in child_tags: # Не выбран никак
-                all_active_children_fully_checked = False
-            if CHECKED_TAG in child_tags or PARTIALLY_CHECKED_TAG in child_tags: # Выбран полностью или частично
+            if CHECKED_TAG not in child_tags and PARTIALLY_CHECKED_TAG not in child_tags:
+                all_active_children_fully_checked = False # Нашли активного, но не выделенного ребенка
+            if CHECKED_TAG in child_tags or PARTIALLY_CHECKED_TAG in child_tags: 
                 any_active_child_checked_or_partially = True
             
-            if CHECKED_TAG not in child_tags: # Если хотя бы один активный не выбран ПОЛНОСТЬЮ
+            # Важно: если хоть один активный ребенок НЕ ВЫБРАН ПОЛНОСТЬЮ (т.е. не CHECKED_TAG),
+            # то родитель не может быть полностью выбран.
+            if CHECKED_TAG not in child_tags: 
                 all_active_children_fully_checked = False
+        else: # Ребенок "отключен" (бинарный, большой и т.д.)
+             all_active_children_fully_checked = False # Отключенные дети не позволяют родителям быть "полностью выбранными"
 
     parent_tags_set.discard(CHECKED_TAG)
     parent_tags_set.discard(PARTIALLY_CHECKED_TAG)
@@ -628,7 +602,6 @@ def _update_parent_check_state_recursive(tree, item_id, selected_tokens_label_re
             parent_tags_set.add(CHECKED_TAG)
         elif any_active_child_checked_or_partially:
             parent_tags_set.add(PARTIALLY_CHECKED_TAG)
-    # Если нет активных детей или ни один активный ребенок не выбран, оба тега остаются снятыми.
     
     tree.item(parent_id, tags=tuple(parent_tags_set))
     _update_parent_check_state_recursive(tree, parent_id, selected_tokens_label_ref)
@@ -639,17 +612,10 @@ def set_all_tree_check_state(tree, state, selected_tokens_label_ref):
         root_children = tree.get_children("")
         for item_id in root_children:
             set_check_state_recursive(tree, item_id, state, selected_tokens_label_ref)
-        # После изменения всех состояний, обновляем родителей для всех корневых элементов
-        # _update_parent_check_state_recursive вызывается рекурсивно вверх от каждого измененного элемента,
-        # поэтому дополнительный проход здесь не нужен, если set_check_state_recursive вызывает _update_parent_check_state_recursive.
-        # Однако, set_check_state_recursive не вызывает его, поэтому нужен.
-        # Лучше, чтобы set_check_state_recursive вызывал _update_parent_check_state_recursive для item_id.
-        # Но для Select All/Deselect All, проще пройтись по корневым и обновить их родителей.
+        # Обновляем состояние родительских узлов после массового изменения
         for item_id in root_children:
              if tree.exists(item_id):
                  _update_parent_check_state_recursive(tree, item_id, selected_tokens_label_ref)
-
-
     except tk.TclError: pass 
     
     if selected_tokens_label_ref:
