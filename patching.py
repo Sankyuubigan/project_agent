@@ -15,7 +15,7 @@ except ImportError:
 
 def _run_git_command(command, cwd, log_widget, step_name=""):
     """Вспомогательная функция для запуска git и логирования."""
-    log_widget.insert(tk.END, f"Выполнение {step_name}: {' '.join(command)}\n")
+    log_widget.insert(tk.END, f"Выполнение {step_name}: {' '.join(command)}\n", ('info',))
     startupinfo = None
     if os.name == 'nt':
         startupinfo = subprocess.STARTUPINFO()
@@ -24,7 +24,7 @@ def _run_git_command(command, cwd, log_widget, step_name=""):
     try:
         result = subprocess.run(command, cwd=cwd, capture_output=True, text=True, encoding='utf-8', check=False, startupinfo=startupinfo)
         if result.stdout:
-            log_widget.insert(tk.END, f"{step_name} stdout:\n{result.stdout}\n")
+            log_widget.insert(tk.END, f"{step_name} stdout:\n{result.stdout}\n", ('info',))
         if result.stderr:
             if result.returncode != 0:
                  log_widget.insert(tk.END, f"!!! {step_name} ОШИБКА stderr:\n{result.stderr}\n", ('error',))
@@ -45,14 +45,14 @@ def apply_diff_patch(project_dir, diff_content, log_widget):
     git_check_res = _run_git_command(["git", "--version"], project_dir, log_widget, "Проверка версии Git")
     if not git_check_res or git_check_res.returncode != 0:
         return False
-    log_widget.insert(tk.END, f"Git версия: {git_check_res.stdout.strip()}\n")
+    log_widget.insert(tk.END, f"Git версия: {git_check_res.stdout.strip()}\n", ('info',))
 
     temp_file_path = None
     try:
         with tempfile.NamedTemporaryFile(mode='w', suffix='.patch', delete=False, encoding='utf-8', newline='\n') as tf:
             tf.write(diff_content.replace('\r\n', '\n'))
             temp_file_path = tf.name
-        log_widget.insert(tk.END, f"Создан временный патч: {temp_file_path}\n")
+        log_widget.insert(tk.END, f"Создан временный патч: {temp_file_path}\n", ('info',))
 
         cmd_check = ["git", "apply", "--check", "--ignore-space-change", "--ignore-whitespace", temp_file_path]
         check_res = _run_git_command(cmd_check, project_dir, log_widget, "Проверка diff")
@@ -79,7 +79,7 @@ def apply_diff_patch(project_dir, diff_content, log_widget):
         if temp_file_path and os.path.exists(temp_file_path):
             try:
                 os.unlink(temp_file_path)
-                log_widget.insert(tk.END, f"Временный файл удален: {temp_file_path}\n")
+                log_widget.insert(tk.END, f"Временный файл удален: {temp_file_path}\n", ('info',))
             except OSError as e:
                 log_widget.insert(tk.END, f"Не удалось удалить временный файл {temp_file_path}: {e}\n", ('warning',))
 
@@ -118,7 +118,7 @@ def apply_git_diff_manually_with_dmp(project_dir, diff_content, log_widget):
     overall_success = True
     for rel_path, patch_text in all_patches.items():
         full_path = project_root / rel_path
-        log_widget.insert(tk.END, f"DMP Обработка: {rel_path}\n")
+        log_widget.insert(tk.END, f"DMP Обработка: {rel_path}\n", ('info',))
         is_new = "new file mode" in patch_text and "index 0000000.." in patch_text
         is_del = "deleted file mode" in patch_text and "..0000000" in patch_text
 
@@ -150,7 +150,7 @@ def apply_git_diff_manually_with_dmp(project_dir, diff_content, log_widget):
             else: log_widget.insert(tk.END, f"DMP Err: Ошибка применения патча к {rel_path}. Результаты: {results}\n", ('error',)); overall_success = False
         except ValueError as e: log_widget.insert(tk.END, f"DMP ValueError для {rel_path}: {e}.\n", ('error',)); overall_success = False
         except Exception as e: log_widget.insert(tk.END, f"DMP Ошибка для {rel_path}: {e}\n", ('error',)); overall_success = False
-    log_widget.insert(tk.END, f"DMP: Ручной разбор завершен. Результат: {'Успех' if overall_success else 'Неудача'}\n")
+    log_widget.insert(tk.END, f"DMP: Ручной разбор завершен. Результат: {'Успех' if overall_success else 'Неудача'}\n", ('info' if overall_success else 'error',))
     return overall_success
 
 def apply_precise_block_patch(project_dir_str, changes_list, log_widget):
@@ -173,7 +173,7 @@ def apply_precise_block_patch(project_dir_str, changes_list, log_widget):
         if not file_path_relative_str or not operation:
             log_widget.insert(tk.END, f"{log_prefix}Ошибка: Отсутствует 'filePath' или 'operation' в инструкции #{i+1}.\n", ('error',)); failed_count += 1; continue
         
-        log_widget.insert(tk.END, f"{log_prefix}Файл: {file_path_relative_str}, Операция: {operation}\n")
+        log_widget.insert(tk.END, f"{log_prefix}Файл: {file_path_relative_str}, Операция: {operation}\n", ('info',))
         try:
             target_file_path = (project_root / file_path_relative_str).resolve()
             if not str(target_file_path).startswith(str(project_root) + os.sep) and target_file_path != project_root:
@@ -229,8 +229,14 @@ def apply_precise_block_patch(project_dir_str, changes_list, log_widget):
                 anchor_text = "\n".join(anchor_block_lines); text_to_add = "\n".join(block_to_add_lines)
                 occurrences = current_file_content.count(anchor_text)
                 if occurrences == 1:
-                    replacement = (anchor_text + "\n" + text_to_add) if operation == "ADD_BLOCK_AFTER_ANCHOR" else (text_to_add + "\n" + anchor_text)
-                    new_file_content = current_file_content.replace(anchor_text, replacement, 1)
+                    idx = current_file_content.find(anchor_text)
+                    if idx != -1:
+                        if operation == "ADD_BLOCK_AFTER_ANCHOR":
+                            end_of_anchor = idx + len(anchor_text)
+                            new_file_content = (current_file_content[:end_of_anchor] + "\n" + text_to_add + current_file_content[end_of_anchor:])
+                        else: # ADD_BLOCK_BEFORE_ANCHOR
+                            new_file_content = (current_file_content[:idx] + text_to_add + "\n" + current_file_content[idx:])
+                    else: log_widget.insert(tk.END, f"{log_prefix}Внутренняя ошибка: anchor_text.count == 1, но find не нашел.\n", ('error',)); failed_count += 1
                 elif occurrences == 0: log_widget.insert(tk.END, f"{log_prefix}Ошибка: Якорный блок (anchor_block_content) НЕ НАЙДЕН.\n--- Ожидаемый якорный блок: ---\n{anchor_text}\n---\n", ('error',)); failed_count += 1
                 else: log_widget.insert(tk.END, f"{log_prefix}Ошибка: Якорный блок (anchor_block_content) НАЙДЕН {occurrences} РАЗ. Неоднозначность.\n--- Искомый якорный блок: ---\n{anchor_text}\n---\n", ('error',)); failed_count += 1
             else: log_widget.insert(tk.END, f"{log_prefix}Ошибка: Неизвестная операция '{operation}' для существующего файла.\n", ('error',)); failed_count += 1
@@ -265,7 +271,7 @@ def apply_json_patch(file_path_str, changes, log_widget):
              log_widget.insert(tk.END, f"{log_prefix}Ошибка: Файл не существует, нет данных для создания.\n", ('error',)); return False
         modifications = changes.get("modifications", [])
         if changes.get("action") == "replace_all":
-             lines = [(line + '\n') for line in changes.get("content", "").splitlines()]; log_widget.insert(tk.END, f"{log_prefix}Действие 'replace_all'.\n"); modifications = []
+             lines = [(line + '\n') for line in changes.get("content", "").splitlines()]; log_widget.insert(tk.END, f"{log_prefix}Действие 'replace_all'.\n", ('info',)); modifications = []
         for change in modifications:
             action = change.get("action"); line_num = change.get("line_number"); content = change.get("content", ""); count = change.get("count", 1)
             if not isinstance(line_num, int) or line_num < 0: log_widget.insert(tk.END, f"{log_prefix}Ошибка: Неверный номер строки {line_num} для '{action}'.\n", ('error',)); return False
@@ -310,7 +316,7 @@ def parse_markdown_input(markdown_text, log_widget):
                 current_file_path_str = Path(path_from_marker).as_posix()
                 current_file_content_lines = []
                 in_code_block = False 
-                log_widget.insert(tk.END, f"{log_prefix}Обнаружен файл: {current_file_path_str}\n")
+                log_widget.insert(tk.END, f"{log_prefix}Обнаружен файл: {current_file_path_str}\n", ('info',))
             else:
                 log_widget.insert(tk.END, f"{log_prefix}Ошибка: Пустой путь в маркере <<<FILE:...>>> на строке {i+1}.\n", ('error',))
                 current_file_path_str = None 
@@ -342,7 +348,7 @@ def apply_markdown_changes(project_dir, file_data, log_widget):
     """Применяет изменения из словаря {путь: содержимое}."""
     project_path = Path(project_dir).resolve(); success = 0; errors = 0
     log_prefix = "MarkdownApply: "
-    if not file_data: log_widget.insert(tk.END, f"{log_prefix}Нет данных для применения.\n", ('info',)); return False # Изменено на info
+    if not file_data: log_widget.insert(tk.END, f"{log_prefix}Нет данных для применения.\n", ('info',)); return False 
     for rel_path, content in file_data.items():
         full_path = (project_path / Path(rel_path)).resolve()
         try: 
@@ -365,7 +371,7 @@ def process_input(input_text, project_dir, log_widget, apply_method):
         return
     log_widget.insert(tk.END, f"--- Начало обработки. Метод: {apply_method} ---\n", ('info',))
     
-    try: # Настройка тегов, если еще не было
+    try: 
         log_widget.tag_config('error', foreground='red'); log_widget.tag_config('warning', foreground='orange') 
         log_widget.tag_config('success', foreground='green'); log_widget.tag_config('info', foreground='blue')
     except tk.TclError: pass
@@ -374,7 +380,6 @@ def process_input(input_text, project_dir, log_widget, apply_method):
         if apply_method == "Markdown":
             file_data = parse_markdown_input(input_text, log_widget)
             if file_data: apply_markdown_changes(project_dir, file_data, log_widget)
-            # else: log_widget.insert(tk.END, "Markdown: Нет данных для применения (уже залогировано в parse_markdown_input).\n", ('info',)) # parse_markdown_input уже логирует
         elif apply_method == "Git":
             apply_diff_patch(project_dir, input_text, log_widget)
         elif apply_method == "Diff-Match-Patch":
@@ -385,9 +390,13 @@ def process_input(input_text, project_dir, log_widget, apply_method):
                 changes_list = parsed_json_data.get("changes")
                 if changes_list is None: log_widget.insert(tk.END, "JSON PreciseBlock: Ошибка: отсутствует ключ 'changes' в JSON или он null.\n", ('error',)); return
                 if not isinstance(changes_list, list): log_widget.insert(tk.END, "JSON PreciseBlock: Ошибка: 'changes' должен быть списком.\n", ('error',)); return
-                apply_precise_block_patch(project_dir, changes_list, log_widget)
-            except json.JSONDecodeError as e: log_widget.insert(tk.END, f"JSON PreciseBlock: Ошибка разбора JSON: {e}\n", ('error',))
-            except Exception as e: import traceback; log_widget.insert(tk.END, f"JSON PreciseBlock: Непредвиденная ошибка обработки: {e}\n{traceback.format_exc()}\n", ('error',))
+                apply_precise_block_patch(project_dir, changes_list, log_widget) # Возвращаемые значения уже логируются внутри
+            except json.JSONDecodeError as e: 
+                log_widget.insert(tk.END, f"JSON PreciseBlock: Ошибка разбора JSON: {e}\n", ('error',))
+                log_widget.insert(tk.END, f"Проверьте корректность JSON, особенно экранирование символов и запятые.\n", ('info',))
+            except Exception as e: 
+                import traceback
+                log_widget.insert(tk.END, f"JSON PreciseBlock: Непредвиденная ошибка обработки: {e}\n{traceback.format_exc()}\n", ('error',))
         else:
             log_widget.insert(tk.END, f"Ошибка: Неизвестный метод '{apply_method}'\n", ('error',))
     except Exception as e: 

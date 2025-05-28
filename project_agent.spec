@@ -5,7 +5,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('D:\\Projects\\project_agent\\app_icon.ico', '.'), ('D:\\Projects\\project_agent\\change_control_doc.md', '.'), ('D:\\Programs\\Python\\Python312\\Lib\\site-packages\\tiktoken', 'tiktoken')],
+    datas=[('D:\\Projects\\project_agent\\app_icon.ico', '.'), ('D:\\Projects\\project_agent\\doc\\diffmatchpatch_method.md', 'doc'), ('D:\\Projects\\project_agent\\doc\\git_method.md', 'doc'), ('D:\\Projects\\project_agent\\doc\\json_method.md', 'doc'), ('D:\\Projects\\project_agent\\doc\\markdown_method.md', 'doc'), ('D:\\Programs\\Python\\Python312\\Lib\\site-packages\\tiktoken', 'tiktoken')],
     hiddenimports=['pyperclip', 'tkinter.ttk', 'diff_match_patch', 'fnmatch', 'tiktoken', 'tiktoken_ext', 'tiktoken_ext.openai_public', 'tiktoken_ext.cl100k_base', 'regex', 'charset_normalizer', 'idna', 'gitignore_parser'],
     hookspath=[],
     hooksconfig={},

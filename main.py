@@ -1,5 +1,3 @@
-# apply_changes_gui.py
-
 import os
 import sys
 import tkinter as tk
@@ -7,14 +5,14 @@ from tkinter import ttk, scrolledtext, messagebox
 from pathlib import Path
 import json
 import traceback
-from datetime import datetime # <--- ДОБАВЛЕНО
+from datetime import datetime 
 
 # --- ФОРМИРУЕМ ВЕРСИЮ ПРОГРАММЫ ДИНАМИЧЕСКИ ---
 try:
     current_date = datetime.now()
     APP_VERSION = current_date.strftime("%y.%m.%d")
 except Exception:
-    APP_VERSION = "unknown" # На случай непредвиденной ошибки
+    APP_VERSION = "unknown" 
 # -------------------------------------------
 
 print("DEBUG: Standard imports done.")
@@ -31,7 +29,7 @@ try:
     from gui_utils import (
         create_context_menu, copy_logs, clear_input_field, select_project_dir
     )
-    from clipboard_logic import copy_project_files
+    from clipboard_logic import copy_project_files # apply_method_var будет передаваться сюда
     from file_processing import resource_path
 
     print("DEBUG: Module imports successful.")
@@ -59,9 +57,7 @@ except Exception as general_import_err:
 try:
     print("DEBUG: Creating root window...")
     root = tk.Tk();
-    # --- УСТАНАВЛИВАЕМ ЗАГОЛОВОК С ДИНАМИЧЕСКОЙ ВЕРСИЕЙ ---
     root.title(f"Project Agent v{APP_VERSION}"); 
-    # -----------------------------------------------------
     root.geometry("1100x850")
     style = ttk.Style();
     style.map("Treeview", background=[('selected', '#E0E0E0')], foreground=[('selected', 'black')])
@@ -123,7 +119,7 @@ try:
     apply_method_frame = tk.Frame(settings_frame);
     apply_method_frame.pack(fill=tk.X)
     tk.Label(apply_method_frame, text="Apply Method:").pack(side=tk.LEFT, padx=(0, 5))
-    apply_method_var = tk.StringVar(value="Markdown");
+    apply_method_var = tk.StringVar(value="Markdown"); # Эта переменная будет передана в clipboard_logic
     apply_method_options = ["Markdown", "Git", "Diff-Match-Patch", "JSON"]
     apply_method_menu = ttk.OptionMenu(apply_method_frame, apply_method_var, apply_method_var.get(),
                                        *apply_method_options);
@@ -197,8 +193,9 @@ try:
                             command=lambda: copy_project_files(project_dir_entry,
                                                                file_tree,
                                                                log_widget,
-                                                               include_structure_var.get(),
-                                                               include_instructions_var.get()),
+                                                               include_structure_var, 
+                                                               include_instructions_var, 
+                                                               apply_method_var), # Передаем apply_method_var
                             height=2, bg="#AED6F1")
     copy_button.pack(fill=tk.X, pady=(5, 5), padx=5)
     print("DEBUG: Right panel created.")
