@@ -3,6 +3,9 @@ import tkinter as tk
 from tkinter import scrolledtext, filedialog
 import pyperclip
 
+# Импортируем populate_file_tree_threaded в начале файла, используя правильный путь от корня пакета
+from core.treeview_logic import populate_file_tree_threaded
+
 def create_context_menu(widget):
     """Создает стандартное контекстное меню."""
     menu = tk.Menu(widget, tearoff=0)
@@ -23,15 +26,15 @@ def create_context_menu(widget):
     def update_menu_state():
         is_editable = True
         try: is_editable = widget.cget("state") != "disabled"
-        except: pass
+        except tk.TclError: pass # Защита от ошибок, если виджет уже удален
         has_selection = False
         try:
             if widget.selection_get(): has_selection = True
-        except: pass
+        except tk.TclError: pass
         can_paste = False
         try:
             if pyperclip.paste(): can_paste = True
-        except: pass
+        except Exception: pass # pyperclip может вызывать разные ошибки
 
         cut_state = "normal" if has_selection and is_editable else "disabled"
         copy_state = "normal" if has_selection else "disabled"
@@ -49,7 +52,9 @@ def create_context_menu(widget):
 
     def show_context_menu(event):
         update_menu_state()
-        menu.tk_popup(event.x_root, event.y_root)
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        except tk.TclError: pass
 
     widget.bind("<Button-3>", show_context_menu)
 
@@ -85,12 +90,13 @@ def clear_input_field(input_text_widget, log_widget):
 
 def select_project_dir(entry_widget, tree_widget, log_widget_ref, progress_bar_ref, progress_label_ref):
     """Открывает диалог выбора директории и запускает заполнение дерева с принудительным обновлением."""
-    from treeview_logic import populate_file_tree_threaded # Отложенный импорт
+    # Отложенный импорт больше не нужен, так как он теперь вверху файла
+    # from core.treeview_logic import populate_file_tree_threaded 
     dir_path = filedialog.askdirectory()
     if dir_path:
         if entry_widget:
              entry_widget.delete(0, tk.END); entry_widget.insert(0, dir_path)
         if log_widget_ref:
-             log_widget_ref.insert(tk.END, f"Выбрана директория (принудительное обновление): {dir_path}\n")
+             log_widget_ref.insert(tk.END, f"Выбрана директория (принудительное обновление): {dir_path}\n", ('info',))
         # Запускаем заполнение с флагом force_rescan=True
         populate_file_tree_threaded(dir_path, tree_widget, log_widget_ref, progress_bar_ref, progress_label_ref, force_rescan=True)

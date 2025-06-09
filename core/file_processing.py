@@ -14,13 +14,25 @@ BINARY_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', 
 MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024
 MAX_TOKENS_FOR_DISPLAY = 50000
 
-def resource_path(relative_path):
-    """ Возвращает абсолютный путь к ресурсу """
+def resource_path(relative_path_from_root):
+    """
+    Возвращает абсолютный путь к ресурсу.
+    В режиме разработки (не в сборке PyInstaller) ищет от корня проекта.
+    В сборке PyInstaller (_MEIPASS) ищет от временной папки сборки.
+    """
     try:
+        # PyInstaller создает временную папку и сохраняет путь в sys._MEIPASS.
+        # Все данные, добавленные через --add-data, будут здесь.
         base_path = sys._MEIPASS
-    except AttributeError: 
-        base_path = os.path.abspath(Path(__file__).parent)
-    return os.path.join(base_path, relative_path)
+    except AttributeError:
+        # Мы не в сборке PyInstaller. Нам нужно найти корень проекта.
+        # __file__ -> .../project_agent/core/file_processing.py
+        # Path(__file__).parent -> .../project_agent/core
+        # Path(__file__).parent.parent -> .../project_agent (это корень проекта)
+        base_path = Path(__file__).resolve().parent.parent
+        
+    # os.path.join корректно соединит Path-объект и строку
+    return os.path.join(base_path, relative_path_from_root)
 
 def calculate_file_hash(file_path):
     hasher = hashlib.sha256()
@@ -31,11 +43,9 @@ def calculate_file_hash(file_path):
             while chunk := f.read(4096): 
                 hasher.update(chunk)
         return hasher.hexdigest()
-    except OSError as e: 
-        # print(f"Error calculating hash for {file_path}: {e}") # Убрано
+    except OSError: 
         return "error_calculating_hash"
-    except Exception as e: 
-        # print(f"Unexpected error calculating hash for {file_path}: {e}") # Убрано
+    except Exception: 
         return "error_calculating_hash"
 
 
@@ -53,20 +63,12 @@ def count_file_tokens(file_path_str, log_widget_ref, model_name="gpt-4"):
     try:
         file_size = file_path_obj.stat().st_size
         if file_size > MAX_FILE_SIZE_BYTES * 5: 
-             # if log_widget_ref: # Убираем излишнее логирование успешных пропусков
-             #     try:
-             #         log_widget_ref.insert(tk.END, f"ИНФО: Файл '{file_name_for_log}' ({file_size // (1024*1024)}MB) слишком большой, токены не считаются.\n")
-             #     except: pass
              return None, f"файл > {MAX_FILE_SIZE_BYTES*5 // (1024*1024)} MB"
 
         with open(file_path_obj, 'r', encoding='utf-8') as f:
             content = f.read()
 
     except UnicodeDecodeError:
-        # if log_widget_ref: # Убираем излишнее логирование успешных пропусков
-        #     try:
-        #         log_widget_ref.insert(tk.END, f"ИНФО: Файл '{file_name_for_log}' бинарный (ошибка декодирования), токены не считаются.\n")
-        #     except: pass
         return None, "бинарный (ошибка декодирования)"
     except OSError as e:
          if log_widget_ref:

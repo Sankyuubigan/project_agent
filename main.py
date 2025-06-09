@@ -1,7 +1,7 @@
 # Этот файл теперь находится в project_agent/main.py
 
 import os
-import sys # sys все еще нужен для sys.exit и traceback
+import sys 
 from pathlib import Path
 import json
 import tkinter as tk
@@ -16,8 +16,6 @@ try:
 except Exception:
     APP_VERSION = "unknown_version" 
 # -------------------------------------------
-
-# Блок модификации sys.path больше не нужен, если main.py в корне проекта.
 
 try:
     # Импорты из пакета core
@@ -69,9 +67,6 @@ try:
 
     try:
         icon_file_name_local = "app_icon.ico"
-        # PyInstaller добавляет app_icon.ico в корень сборки (datas=[('app_icon.ico', '.')])
-        # resource_path должен найти его там.
-        # Для разработки, если main.py и app_icon.ico в корне, os.path.exists найдет.
         if os.path.exists(icon_file_name_local): 
             root.iconbitmap(icon_file_name_local)
         else: 
@@ -290,7 +285,6 @@ try:
                 log_widget.insert(tk.END, error_msg_populate + "\n", ('error',))
             except tk.TclError: pass 
 
-    # main.py теперь в корне проекта, app_config.json тоже в корне.
     config_file_path_obj = Path("app_config.json") 
     
     loaded_last_dir = None
@@ -341,7 +335,6 @@ try:
     except ImportError:
         if log_widget: log_widget.insert(tk.END, "ПРЕДУПРЕЖДЕНИЕ: Библиотека gitignore-parser не найдена...\n", ('warning',))
 
-    # Этот блок запускается только если скрипт исполняется напрямую
     if __name__ == "__main__":
         root.mainloop()
 
