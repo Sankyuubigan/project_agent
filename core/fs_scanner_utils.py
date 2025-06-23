@@ -37,42 +37,22 @@ def should_exclude_item(
     item_path_obj: Path,
     item_name: str,
     is_dir: bool,
-    gitignore_matcher_func,
-    log_func=None
+    gitignore_matcher_func
 ):
-    if log_func:
-        log_func(f"Проверка исключения для: '{item_path_obj}'")
-
     if is_dir:
         if item_name in GLOBAL_IGNORED_DIRS:
-            if log_func:
-                log_func(f"-> ИСКЛЮЧЕНО: '{item_name}' найдено в глобальном списке игнорируемых папок.")
             return True
     else: 
         for pattern in GLOBAL_IGNORED_FILES:
             if fnmatch_lib.fnmatch(item_name, pattern):
-                if log_func:
-                    log_func(f"-> ИСКЛЮЧЕНО: '{item_name}' соответствует глобальному паттерну '{pattern}'.")
                 return True
 
     if gitignore_matcher_func and callable(gitignore_matcher_func):
         try:
-            is_ignored_by_git = gitignore_matcher_func(item_path_obj)
-            if log_func:
-                log_func(f"-> Проверка .gitignore для '{item_path_obj}': результат = {is_ignored_by_git}")
-            if is_ignored_by_git:
-                if log_func:
-                    log_func(f"-> ИСКЛЮЧЕНО: '{item_path_obj}' игнорируется согласно .gitignore.")
+            if gitignore_matcher_func(item_path_obj): 
                 return True
-        except Exception as e:
-            if log_func:
-                log_func(f"-> ОШИБКА при проверке .gitignore для '{item_path_obj}': {e}", 'error')
-    elif log_func and not (gitignore_matcher_func and callable(gitignore_matcher_func)):
-        if log_func:
-            log_func(f"-> .gitignore парсер не предоставлен или не является функцией.")
-
-    if log_func:
-        log_func(f"-> НЕ ИСКЛЮЧЕНО: для '{item_path_obj}' не найдено правил исключения.")
+        except Exception:
+            pass
             
     return False
 

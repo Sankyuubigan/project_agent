@@ -280,52 +280,45 @@ def populate_file_tree_threaded( dir_path_str_or_none, tree, log_widget_ref,  p_
 
 def _populate_file_tree_actual_scan(abs_dir_path_str, log_widget_ref):
     global update_queue 
-    thread_name, log_prefix = threading.current_thread().name, f"LOG_THREAD ({threading.current_thread().name}): " 
+    thread_name = threading.current_thread().name
     try:
         root_dir_obj = Path(abs_dir_path_str)
         local_gitignore_matcher = None
         
-        update_queue.put(("log_message", (f"{log_prefix}Начало сканирования: {root_dir_obj}", ('info',))))
-        
         gi_file = root_dir_obj / ".gitignore"
-        update_queue.put(("log_message", (f"{log_prefix}Поиск .gitignore по пути: {gi_file}", ('info',))))
-
         if gi_file.is_file():
-            update_queue.put(("log_message", (f"{log_prefix}Файл .gitignore НАЙДЕН. Попытка чтения...", ('success',))))
             try:
                 with gi_file.open('r', encoding='utf-8') as f:
                     lines = f.readlines()
-                
-                log_content = "".join(lines)
-                update_queue.put(("log_message", (f"{log_prefix}Содержимое .gitignore:\n---\n{log_content}\n---", ('info',))))
-
                 base_dir = str(gi_file.parent.resolve())
                 local_gitignore_matcher = Matcher(lines, base_dir)
-                update_queue.put(("log_message", (f"{log_prefix}Парсер .gitignore успешно создан.", ('success',))))
             except Exception as e:
-                update_queue.put(("log_message", (f"{log_prefix}ОШИБКА: Не удалось прочитать или распарсить .gitignore ({gi_file}): {e}", ('error',))))
-        else:
-            update_queue.put(("log_message", (f"{log_prefix}Файл .gitignore НЕ НАЙДЕН по указанному пути.", ('warning',))))
+                update_queue.put(("log_message", (f"Не удалось прочитать .gitignore: {e}", ('warning',))))
 
-        update_queue.put(("progress_start", None)); root_name, root_id = root_dir_obj.name, str(root_dir_obj)
+        update_queue.put(("progress_start", None))
+        root_name, root_id = root_dir_obj.name, str(root_dir_obj)
         root_ui_tags, root_status, _ = _get_node_info_for_treeview(root_dir_obj, root_name, True, log_widget_ref)
         root_ui_tags.add(CHECKED_TAG) 
         root_data = {'name_only': root_name, 'is_dir': True, 'is_file': False, 'rel_path': "", 'tokens': 0, 'status_msg': root_status, 'ui_tags': root_ui_tags }
         update_queue.put(("add_node", ("", root_id, root_name, tuple(root_ui_tags), str(root_dir_obj), root_data)))
         
-        log_func_for_scan = lambda msg, level='info': update_queue.put(("log_message", (f"SCAN_TRACE: {msg}", (level,))))
-
-        tokens_root = _populate_recursive_scan_and_count_tokens(root_dir_obj, root_id, root_dir_obj, log_widget_ref, local_gitignore_matcher, log_func_for_scan)
-        if isinstance(tokens_root, (int, float)) and tokens_root >= 0: update_queue.put(("update_node_text", (root_id, root_name, tokens_root, root_status, True))) 
-        else: update_queue.put(("log_message", (f"{log_prefix}ПРЕДУПРЕЖДЕНИЕ: Для '{root_name}' токены не были числом: {tokens_root}.", ('warning',)))); update_queue.put(("update_node_text", (root_id, root_name, 0, "ошибка подсчета токенов", True)))
+        tokens_root = _populate_recursive_scan_and_count_tokens(root_dir_obj, root_id, root_dir_obj, log_widget_ref, local_gitignore_matcher)
+        if isinstance(tokens_root, (int, float)) and tokens_root >= 0:
+            update_queue.put(("update_node_text", (root_id, root_name, tokens_root, root_status, True))) 
+        else:
+            log_prefix = f"LOG_THREAD ({thread_name}): "
+            update_queue.put(("log_message", (f"{log_prefix}ПРЕДУПРЕЖДЕНИЕ: Для '{root_name}' токены не были числом: {tokens_root}.", ('warning',))))
+            update_queue.put(("update_node_text", (root_id, root_name, 0, "ошибка подсчета токенов", True)))
     except Exception as e:
         err_msg = f"Крит. ошибка в потоке {thread_name} при обработке '{abs_dir_path_str}': {e}"
         update_queue.put(("log_message", (f"LOG_THREAD_ERROR: {err_msg}\n{traceback.format_exc()}", ('error',))))
-        try: update_queue.put(("add_node", ("", f"error_root_{thread_name}", err_msg[:100], ('error',), abs_dir_path_str, {'name_only': "Ошибка потока", 'is_dir': False, 'is_file': False, 'status_msg':err_msg[:100], 'tokens':0, 'ui_tags': {'error'}})))
+        try:
+            update_queue.put(("add_node", ("", f"error_root_{thread_name}", err_msg[:100], ('error',), abs_dir_path_str, {'name_only': "Ошибка потока", 'is_dir': False, 'is_file': False, 'status_msg':err_msg[:100], 'tokens':0, 'ui_tags': {'error'}})))
         except: pass
-    finally: update_queue.put(("finished", None)) 
+    finally:
+        update_queue.put(("finished", None)) 
 
-def _populate_recursive_scan_and_count_tokens( cur_dir_obj, parent_id_str, root_dir_obj, log_widget_ref, gitignore_matcher_func, log_func ):
+def _populate_recursive_scan_and_count_tokens( cur_dir_obj, parent_id_str, root_dir_obj, log_widget_ref, gitignore_matcher_func ):
     total_tokens_folder, cur_dir_name_log = 0, cur_dir_obj.name
     update_queue.put(("progress_step", cur_dir_obj.name)) 
     if not (os.access(str(cur_dir_obj), os.R_OK) and os.access(str(cur_dir_obj), os.X_OK)):
@@ -337,7 +330,7 @@ def _populate_recursive_scan_and_count_tokens( cur_dir_obj, parent_id_str, root_
         for item_path_obj in items:
             item_name, is_dir, item_id_str = item_path_obj.name, item_path_obj.is_dir(), str(item_path_obj) 
             
-            if should_exclude_item(item_path_obj, item_name, is_dir, gitignore_matcher_func, log_func=log_func):
+            if should_exclude_item(item_path_obj, item_name, is_dir, gitignore_matcher_func):
                 continue
 
             ui_tags, status_msg, file_tokens = _get_node_info_for_treeview(item_path_obj, item_name, is_dir, log_widget_ref)
@@ -346,7 +339,7 @@ def _populate_recursive_scan_and_count_tokens( cur_dir_obj, parent_id_str, root_
             data_dict = {'name_only': item_name, 'is_dir': is_dir, 'is_file': not is_dir, 'rel_path': rel_path, 'tokens': file_tokens if not is_dir else 0, 'status_msg': status_msg, 'ui_tags': ui_tags }
             update_queue.put(("add_node", (parent_id_str, item_id_str, item_name, tuple(ui_tags), str(item_path_obj), data_dict)))
             if is_dir:
-                tokens_subdir = _populate_recursive_scan_and_count_tokens(item_path_obj, item_id_str, root_dir_obj, log_widget_ref, gitignore_matcher_func, log_func)
+                tokens_subdir = _populate_recursive_scan_and_count_tokens(item_path_obj, item_id_str, root_dir_obj, log_widget_ref, gitignore_matcher_func)
                 if isinstance(tokens_subdir, (int,float)) and tokens_subdir >= 0: total_tokens_folder += tokens_subdir; update_queue.put(("update_node_text", (item_id_str, item_name, tokens_subdir, data_dict.get('status_msg',''), True)))
             elif file_tokens is not None and isinstance(file_tokens, (int, float)) and file_tokens >=0: total_tokens_folder += file_tokens
     except OSError as e:
