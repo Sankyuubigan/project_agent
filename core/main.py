@@ -1,40 +1,36 @@
-# Этот блок должен быть в самом верху файла, до других импортов из вашего проекта
+# Этот файл находится в project_agent/core/main.py
+
 import os
 import sys
 from pathlib import Path
-import json # <--- ДОБАВЛЕН ИМПОРТ JSON
 
-if __name__ == "__main__" and (__package__ is None or __package__ == ''):
-    # Скрипт запущен напрямую, а не как часть пакета.
-    # Нам нужно добавить корень проекта в sys.path.
+# --- НАЧАЛО БЛОКА ИСПРАВЛЕНИЯ ПУТЕЙ ---
+# Этот блок должен быть самым первым, до всех остальных импортов.
+# Он решает проблему "ModuleNotFoundError: No module named 'core'"
+# при запуске main.py из папки core.
+if __name__ == "__main__":
+    # Определяем абсолютный путь к текущему файлу (main.py)
+    current_file_path = Path(__file__).resolve()
+    # Определяем путь к папке core
+    core_dir = current_file_path.parent
+    # Определяем путь к корню проекта (папка, содержащая core)
+    project_root = core_dir.parent
     
-    # Абсолютный путь к текущему файлу (main.py)
-    current_file_abs_path = Path(__file__).resolve()
-    # Директория, содержащая этот скрипт (т.е. .../project_agent/core/)
-    core_directory = current_file_abs_path.parent
-    # Корневая директория проекта (т.е. .../project_agent/)
-    project_root_directory = core_directory.parent
-    
-    if str(project_root_directory) not in sys.path:
-        sys.path.insert(0, str(project_root_directory))
-        # print(f"DEBUG (main.py): Добавлен '{project_root_directory}' в sys.path")
+    # Добавляем корень проекта в sys.path, если его там еще нет.
+    # Это позволит Python находить пакет 'core'.
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+# --- КОНЕЦ БЛОКА ИСПРАВЛЕНИЯ ПУТЕЙ ---
 
-# Теперь обычные импорты проекта должны работать
+
+import json
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
-# pathlib и json уже импортированы выше, datetime тоже
 import traceback
 from datetime import datetime 
 
-# --- ФОРМИРУЕМ ВЕРСИЮ ПРОГРАММЫ ДИНАМИЧЕСКИ ---
 try:
-    current_date_for_version = datetime.now() # Используем другое имя переменной, чтобы не конфликтовать
-    APP_VERSION = current_date_for_version.strftime("%y.%m.%d")
-except Exception:
-    APP_VERSION = "unknown_version" 
-# -------------------------------------------
-
-try:
+    # Теперь, когда корень проекта в sys.path, эти импорты должны работать
     from core.patching import process_input 
     from core.treeview_logic import (
         populate_file_tree_threaded, toggle_check, set_all_tree_check_state,
@@ -47,10 +43,10 @@ try:
         create_context_menu, copy_logs, clear_input_field, select_project_dir
     )
     from core.clipboard_logic import copy_project_files
-    from core.file_processing import resource_path 
+    from core.file_processing import resource_path, initialize_tokenizer 
 
 except ImportError as import_err:
-    error_message_text = f"CRITICAL ERROR: Failed to import required modules: {import_err}\n\n{traceback.format_exc()}"
+    error_message_text = f"CRITICAL ERROR: Failed to import required modules from 'core' package: {import_err}\n\n{traceback.format_exc()}"
     try:
         temp_error_root = tk.Tk()
         temp_error_root.withdraw() 
@@ -68,6 +64,14 @@ except Exception as general_import_err:
     except Exception: pass
     sys.exit(1)
 
+# --- ФОРМИРУЕМ ВЕРСИЮ ПРОГРАММЫ ДИНАМИЧЕСКИ ---
+try:
+    current_date_for_version = datetime.now()
+    APP_VERSION = current_date_for_version.strftime("%y.%m.%d")
+except Exception:
+    APP_VERSION = "unknown_version" 
+# -------------------------------------------
+
 # --- Основная часть создания GUI ---
 try:
     root = tk.Tk()
@@ -83,16 +87,10 @@ try:
 
     try:
         icon_file_name_local = "app_icon.ico"
-        if os.path.exists(icon_file_name_local): 
-            root.iconbitmap(icon_file_name_local)
-        else: 
-            path_to_icon_dev = Path(project_root_directory) / icon_file_name_local 
-            if path_to_icon_dev.exists():
-                 root.iconbitmap(default=str(path_to_icon_dev))
-            else: 
-                icon_path_via_resource = resource_path(icon_file_name_local)
-                if os.path.exists(icon_path_via_resource):
-                    root.iconbitmap(icon_path_via_resource)
+        # resource_path теперь корректно ищет от корня проекта
+        icon_path = resource_path(icon_file_name_local)
+        if os.path.exists(icon_path): 
+            root.iconbitmap(icon_path)
 
     except Exception: 
         pass 
@@ -305,13 +303,14 @@ try:
                 log_widget.insert(tk.END, error_msg_populate + "\n", ('error',))
             except tk.TclError: pass 
 
-    config_file_path_obj = Path(project_root_directory if 'project_root_directory' in locals() else ".") / "app_config.json"
+    # Путь к конфигу теперь строится от корня проекта, который мы добавили в sys.path
+    config_file_path_obj = Path(project_root) / "app_config.json"
     
     loaded_last_dir = None
     if config_file_path_obj.exists() and config_file_path_obj.is_file():
         try:
             with open(config_file_path_obj, 'r', encoding='utf-8') as f_config:
-                config_data = json.load(f_config) # Здесь используется json
+                config_data = json.load(f_config)
             loaded_last_dir = config_data.get("last_project_dir")
             
             if loaded_last_dir and Path(loaded_last_dir).is_dir():
@@ -320,7 +319,7 @@ try:
             else: 
                 if not file_tree.get_children(""): 
                     root.after(150, lambda: start_populating_tree(None, is_initial_load=True)) 
-        except (json.JSONDecodeError, OSError) as e_config_load: # И здесь json
+        except (json.JSONDecodeError, OSError): 
             if not file_tree.get_children(""):
                 root.after(150, lambda: start_populating_tree(None, is_initial_load=True))
     else: 
@@ -337,7 +336,7 @@ try:
         
         try:
             with open(config_file_path_obj, 'w', encoding='utf-8') as f_config_save:
-                json.dump(config_to_save, f_config_save, indent=4) # И здесь json
+                json.dump(config_to_save, f_config_save, indent=4)
         except OSError: 
             pass 
         
@@ -345,17 +344,20 @@ try:
 
     root.protocol("WM_DELETE_WINDOW", on_window_closing)
 
+    initialize_tokenizer(log_widget)
+
     try:
-        import tiktoken
+        import transformers
     except ImportError:
-        if log_widget: log_widget.insert(tk.END, "ПРЕДУПРЕЖДЕНИЕ: Библиотека tiktoken не найдена. Подсчет токенов может быть неточным или недоступным.\n", ('warning',))
+        if log_widget: log_widget.insert(tk.END, "ПРЕДУПРЕЖДЕНИЕ: Библиотека 'transformers' не найдена. Подсчет токенов не будет работать.\n", ('warning',))
     
     try:
         import gitignore_parser
     except ImportError:
-        if log_widget: log_widget.insert(tk.END, "ПРЕДУПРЕЖДЕНИЕ: Библиотека gitignore-parser не найдена. Файлы .gitignore не будут обрабатываться.\n", ('warning',))
+        if log_widget: log_widget.insert(tk.END, "ПРЕДУПРЕЖДЕНИЕ: Библиотека 'gitignore-parser' не найдена...\n", ('warning',))
 
-    root.mainloop()
+    if __name__ == "__main__":
+        root.mainloop()
 
 except Exception as gui_creation_error: 
     error_message_gui = f"CRITICAL ERROR during GUI creation:\n{gui_creation_error}\n\n{traceback.format_exc()}"

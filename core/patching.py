@@ -295,72 +295,107 @@ def apply_json_patch(file_path_str, changes, log_widget):
     except Exception as e: log_widget.insert(tk.END, f"{log_prefix}Общая ошибка: {e}\n", ('error',)); return False
 
 def parse_markdown_input(markdown_text, log_widget):
-    """Парсит Markdown на блоки файлов. Файл добавляется только если найден его <<<END_FILE>>>."""
+    """
+    Парсит Markdown на блоки файлов. Файл добавляется только если найден его <<<END_FILE>>>.
+    Корректно обрабатывает контент как с обрамляющими блоками кода ```, так и без них.
+    """
     files = {}
     current_file_path_str = None
     current_file_content_lines = []
-    in_code_block = False 
+    in_file_capture_mode = False
+    
     re_file_marker = re.compile(r'^\s*<<<FILE:\s*(.*?)\s*>>>\s*$')
     re_end_file_marker = re.compile(r'^\s*<<<END_FILE>>>\s*$')
-    re_code_block_start_or_end = re.compile(r'^\s*```(.*)$') 
+    re_code_block_start = re.compile(r'^\s*```(.*)$')
+    re_code_block_end = re.compile(r'^\s*```\s*$')
     log_prefix = "MarkdownParse: "
 
     for i, line in enumerate(markdown_text.splitlines()):
-        stripped_line = line.strip()
-        file_marker_match = re_file_marker.match(stripped_line)
-        if file_marker_match:
-            if current_file_path_str:
-                log_widget.insert(tk.END, f"{log_prefix}Предупреждение: Новый маркер <<<FILE:...>>> найден до <<<END_FILE>>> для предыдущего файла '{current_file_path_str}'. Предыдущий файл НЕ будет обработан.\n", ('warning',))
-            path_from_marker = file_marker_match.group(1).strip()
-            if path_from_marker:
-                current_file_path_str = Path(path_from_marker).as_posix()
-                current_file_content_lines = []
-                in_code_block = False 
-                log_widget.insert(tk.END, f"{log_prefix}Обнаружен файл: {current_file_path_str}\n", ('info',))
-            else:
-                log_widget.insert(tk.END, f"{log_prefix}Ошибка: Пустой путь в маркере <<<FILE:...>>> на строке {i+1}.\n", ('error',))
-                current_file_path_str = None 
-            continue
-        if re_end_file_marker.match(stripped_line):
-            if current_file_path_str:
-                files[current_file_path_str] = "\n".join(current_file_content_lines)
-                log_widget.insert(tk.END, f"{log_prefix}Файл '{current_file_path_str}' успешно завершен и добавлен для обработки.\n", ('success',))
-                current_file_path_str = None 
-                current_file_content_lines = []
-                in_code_block = False
-            else:
+        if not in_file_capture_mode:
+            file_marker_match = re_file_marker.match(line)
+            if file_marker_match:
+                path_from_marker = file_marker_match.group(1).strip()
+                if path_from_marker:
+                    current_file_path_str = Path(path_from_marker).as_posix()
+                    current_file_content_lines = []
+                    in_file_capture_mode = True
+                    log_widget.insert(tk.END, f"{log_prefix}Обнаружен файл: {current_file_path_str}\n", ('info',))
+                else:
+                    log_widget.insert(tk.END, f"{log_prefix}Ошибка: Пустой путь в маркере <<<FILE:...>>> на строке {i+1}.\n", ('error',))
+            elif re_end_file_marker.match(line):
                 log_widget.insert(tk.END, f"{log_prefix}Предупреждение: Маркер <<<END_FILE>>> найден без активного маркера <<<FILE:...>>> на строке {i+1}.\n", ('warning',))
-            continue
-        if current_file_path_str:
-            code_block_match = re_code_block_start_or_end.match(line) 
-            if code_block_match:
-                in_code_block = not in_code_block 
-                continue 
-            if in_code_block:
+        else:  # We are in_file_capture_mode
+            if re_end_file_marker.match(line):
+                # Finalize the current file
+                content_to_process = list(current_file_content_lines)
+
+                # Heuristically check for and strip markdown code block fences
+                if content_to_process:
+                    first_line = content_to_process[0]
+                    last_line = content_to_process[-1]
+                    if re_code_block_start.match(first_line) and re_code_block_end.match(last_line):
+                        content_to_process = content_to_process[1:-1]
+                
+                final_content = "\n".join(content_to_process)
+                files[current_file_path_str] = final_content
+                log_widget.insert(tk.END, f"{log_prefix}Файл '{current_file_path_str}' успешно завершен и добавлен для обработки.\n", ('success',))
+                
+                # Reset for the next file
+                current_file_path_str = None
+                in_file_capture_mode = False
+            else:
                 current_file_content_lines.append(line)
+
     if current_file_path_str:
         log_widget.insert(tk.END, f"{log_prefix}Предупреждение: Входной текст закончился, но для файла '{current_file_path_str}' не найден маркер <<<END_FILE>>>. Файл НЕ будет обработан.\n", ('warning',))
+    
     if not files:
         log_widget.insert(tk.END, f"{log_prefix}Не найдено корректно завершенных файлов для обработки (<<<FILE:...>>> ... <<<END_FILE>>>).\n", ('warning',))
+    
     return files
+
 
 def apply_markdown_changes(project_dir, file_data, log_widget):
     """Применяет изменения из словаря {путь: содержимое}."""
-    project_path = Path(project_dir).resolve(); success = 0; errors = 0
+    project_path = Path(project_dir).resolve()
+    success = 0
+    errors = 0
     log_prefix = "MarkdownApply: "
-    if not file_data: log_widget.insert(tk.END, f"{log_prefix}Нет данных для применения.\n", ('info',)); return False 
+    if not file_data:
+        log_widget.insert(tk.END, f"{log_prefix}Нет данных для применения.\n", ('info',))
+        return False
+    
     for rel_path, content in file_data.items():
-        full_path = (project_path / Path(rel_path)).resolve()
-        try: 
+        try:
+            full_path = (project_path / Path(rel_path)).resolve()
             if not str(full_path).startswith(str(project_path) + os.sep) and full_path != project_path:
-                log_widget.insert(tk.END, f"{log_prefix}БЕЗОПАСНОСТЬ: Запись вне проекта: '{rel_path}'. Пропущено.\n", ('error',)); errors += 1; continue
-        except ValueError: log_widget.insert(tk.END, f"{log_prefix}БЕЗОПАСНОСТЬ: Запись на другой диск: '{rel_path}'. Пропущено.\n", ('error',)); errors += 1; continue
-        try: 
+                log_widget.insert(tk.END, f"{log_prefix}БЕЗОПАСНОСТЬ: Запись вне проекта: '{rel_path}'. Пропущено.\n", ('error',))
+                errors += 1
+                continue
+        except (ValueError, TypeError):
+            log_widget.insert(tk.END, f"{log_prefix}БЕЗОПАСНОСТЬ: Некорректный путь: '{rel_path}'. Пропущено.\n", ('error',))
+            errors += 1
+            continue
+
+        try:
+            file_existed = full_path.is_file()
+            
             full_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(full_path, 'w', encoding='utf-8', newline='\n') as f: f.write(content) 
-            log_widget.insert(tk.END, f"{log_prefix}Файл записан: {rel_path}\n", ('success',)); success += 1
-        except OSError as e: log_widget.insert(tk.END, f"{log_prefix}OSError записи {rel_path}: {e.strerror}\n", ('error',)); errors += 1
-        except Exception as e: log_widget.insert(tk.END, f"{log_prefix}Ошибка записи {rel_path}: {e}\n", ('error',)); errors += 1
+            with open(full_path, 'w', encoding='utf-8', newline='\n') as f:
+                f.write(content)
+            
+            if file_existed:
+                log_widget.insert(tk.END, f"{log_prefix}Файл изменен: {rel_path}\n", ('success',))
+            else:
+                log_widget.insert(tk.END, f"{log_prefix}Файл создан: {rel_path}\n", ('success',))
+            success += 1
+        except OSError as e:
+            log_widget.insert(tk.END, f"{log_prefix}OSError при записи '{rel_path}': {e.strerror}\n", ('error',))
+            errors += 1
+        except Exception as e:
+            log_widget.insert(tk.END, f"{log_prefix}Ошибка при записи '{rel_path}': {e}\n", ('error',))
+            errors += 1
+            
     log_widget.insert(tk.END, f"{log_prefix}Завершено. Успешно: {success}, Ошибки: {errors}\n", ('info' if errors == 0 else 'warning',))
     return errors == 0
 

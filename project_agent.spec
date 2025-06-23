@@ -2,11 +2,11 @@
 
 
 a = Analysis(
-    ['D:\\Projects\\project_agent\\main.py'],
-    pathex=['.', 'core'],
+    ['D:\\Projects\\project_agent\\core\\main.py'],
+    pathex=['.'],
     binaries=[],
-    datas=[('D:\\Projects\\project_agent\\app_icon.ico', '.'), ('D:\\Projects\\project_agent\\doc\\diffmatchpatch_method.md', 'doc'), ('D:\\Projects\\project_agent\\doc\\git_method.md', 'doc'), ('D:\\Projects\\project_agent\\doc\\json_method.md', 'doc'), ('D:\\Projects\\project_agent\\doc\\markdown_method.md', 'doc'), ('D:\\Programs\\Python\\Python312\\Lib\\site-packages\\tiktoken', 'tiktoken')],
-    hiddenimports=['pyperclip', 'tkinter.ttk', 'diff_match_patch', 'fnmatch', 'tiktoken', 'tiktoken_ext', 'tiktoken_ext.openai_public', 'tiktoken_ext.cl100k_base', 'regex', 'charset_normalizer', 'idna', 'gitignore_parser'],
+    datas=[('D:\\Projects\\project_agent\\app_icon.ico', '.'), ('D:\\Projects\\project_agent\\doc\\diffmatchpatch_method.md', 'doc'), ('D:\\Projects\\project_agent\\doc\\git_method.md', 'doc'), ('D:\\Projects\\project_agent\\doc\\json_method.md', 'doc'), ('D:\\Projects\\project_agent\\doc\\markdown_method.md', 'doc')],
+    hiddenimports=['pyperclip', 'tkinter.ttk', 'diff_match_patch', 'fnmatch', 'gitignore_parser', 'transformers', 'transformers.models', 'transformers.tokenization_utils', 'transformers.tokenization_utils_fast', 'tokenizers', 'tokenizers.models', 'tokenizers.pre_tokenizers', 'tokenizers.processors', 'tokenizers.decoders', 'tokenizers.normalizers', 'safetensors', 'huggingface_hub', 'regex', 'requests', 'packaging', 'filelock', 'numpy', 'pyyaml', 'tqdm'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

@@ -15,9 +15,11 @@ ERROR_STATUS_TAG = "status_error"
 EXCLUDED_BY_DEFAULT_STATUS_TAG = "status_excluded_default"
 TOO_MANY_TOKENS_STATUS_TAG = "status_too_many_tokens"
 
+# ДОБАВЛЕНЫ .conda, .condaenv, env для надежности
 GLOBAL_IGNORED_DIRS = {
     '.git', '__pycache__', '.vscode', '.idea', 'node_modules', 'venv', '.env',
     'build', 'dist', 'out', 'target', '.pytest_cache', '.mypy_cache', '.tox',
+    '.conda', '.condaenv', 'env'
 }
 
 GLOBAL_IGNORED_FILES = {

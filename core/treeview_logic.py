@@ -16,9 +16,11 @@ from core.fs_scanner_utils import (
 )
 
 try:
-    from gitignore_parser import parse_gitignore
+    # ИЗМЕНЕНО: Импортируем Matcher для ручного создания
+    from gitignore_parser import parse_gitignore, Matcher
 except ImportError:
     parse_gitignore = None
+    Matcher = None # Добавляем Matcher сюда
 
 CHECKED_TAG = "checked"
 FOLDER_TAG = "folder_tv" 
@@ -287,11 +289,20 @@ def _populate_file_tree_actual_scan(abs_dir_path_str, log_widget_ref):
     thread_name, log_prefix = threading.current_thread().name, f"LOG_THREAD ({threading.current_thread().name}): " 
     try:
         root_dir_obj = Path(abs_dir_path_str); gitignore_matcher = None
-        if parse_gitignore:
+        # ИЗМЕНЕНО: Используем Matcher и читаем файл в UTF-8, чтобы избежать ошибок кодировки
+        if Matcher: # Проверяем, что Matcher был успешно импортирован
             gi_file = root_dir_obj / ".gitignore"
             if gi_file.is_file():
-                try: gitignore_matcher = parse_gitignore(str(gi_file)); update_queue.put(("log_message", (f"{log_prefix}Используется .gitignore: {gi_file}", ('info',))))
-                except Exception as e: update_queue.put(("log_message", (f"{log_prefix}ПРЕДУПРЕЖДЕНИЕ: Ошибка разбора .gitignore ({gi_file}): {e}", ('warning',))))
+                try:
+                    # Читаем файл с явным указанием кодировки UTF-8
+                    with gi_file.open(mode='r', encoding='utf-8') as f:
+                        lines = f.readlines()
+                    # Создаем Matcher вручную
+                    gitignore_matcher = Matcher(lines, str(root_dir_obj))
+                    update_queue.put(("log_message", (f"{log_prefix}Используется .gitignore: {gi_file}", ('info',))))
+                except Exception as e:
+                    update_queue.put(("log_message", (f"{log_prefix}ПРЕДУПРЕЖДЕНИЕ: Ошибка разбора .gitignore ({gi_file}): {e}", ('warning',))))
+
         update_queue.put(("progress_start", None)); root_name, root_id = root_dir_obj.name, str(root_dir_obj)
         root_ui_tags, root_status, _ = _get_node_info_for_treeview(root_dir_obj, root_name, True, log_widget_ref)
         root_ui_tags.add(CHECKED_TAG) 

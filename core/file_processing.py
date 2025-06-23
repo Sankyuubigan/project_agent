@@ -4,34 +4,60 @@ import sys
 from pathlib import Path
 import hashlib
 import tkinter as tk 
+
+# Заменяем tiktoken на transformers
 try:
-    import tiktoken
+    from transformers import AutoTokenizer
 except ImportError:
-    tiktoken = None
+    AutoTokenizer = None
+
+# Глобальная переменная для хранения инициализированного токенизатора
+tokenizer = None
+tokenizer_initialization_error = None
 
 # Константы
 BINARY_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', '.svg', '.ico', '.mp3', '.wav', '.aac', '.ogg', '.flac', '.m4a', '.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.odt', '.ods', '.odp', '.zip', '.rar', '.tar', '.gz', '.bz2', '.7z', '.jar', '.war', '.exe', '.dll', '.so', '.dylib', '.app', '.msi', '.sqlite', '.db', '.mdb', '.ttf', '.otf', '.woff', '.woff2', '.pyc', '.pyo', '.pyd', '.class', '.bundle', '.swf', '.dat', '.bin', '.obj', '.lib', '.a', '.pak', '.assets', '.resource', '.resS'}
 MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024
 MAX_TOKENS_FOR_DISPLAY = 50000
 
+def initialize_tokenizer(log_widget_ref=None):
+    """
+    Инициализирует токенизатор Hugging Face. Вызывается один раз при старте.
+    """
+    global tokenizer, tokenizer_initialization_error
+    if tokenizer is not None or tokenizer_initialization_error is not None:
+        return # Уже была попытка инициализации
+
+    if not AutoTokenizer:
+        tokenizer_initialization_error = "Библиотека 'transformers' не установлена. Пожалуйста, установите ее: pip install transformers"
+        if log_widget_ref:
+            log_widget_ref.insert(tk.END, f"ОШИБКА: {tokenizer_initialization_error}\n", ('error',))
+        return
+
+    try:
+        # Используем 'gpt2' как стандартный токенизатор.
+        # При первом запуске он скачает файлы в кэш.
+        # Все последующие запуски будут использовать кэш оффлайн.
+        if log_widget_ref:
+            log_widget_ref.insert(tk.END, "Инициализация токенизатора 'gpt2'...\n", ('info',))
+        tokenizer = AutoTokenizer.from_pretrained("gpt2")
+        if log_widget_ref:
+            log_widget_ref.insert(tk.END, "Токенизатор успешно инициализирован.\n", ('success',))
+    except Exception as e:
+        tokenizer_initialization_error = f"Не удалось загрузить токенизатор. Проверьте интернет-соединение для первого запуска. Ошибка: {e}"
+        if log_widget_ref:
+            log_widget_ref.insert(tk.END, f"ОШИБКА: {tokenizer_initialization_error}\n", ('error',))
+        tokenizer = None
+
+
 def resource_path(relative_path_from_root):
     """
     Возвращает абсолютный путь к ресурсу.
-    В режиме разработки (не в сборке PyInstaller) ищет от корня проекта.
-    В сборке PyInstaller (_MEIPASS) ищет от временной папки сборки.
     """
     try:
-        # PyInstaller создает временную папку и сохраняет путь в sys._MEIPASS.
-        # Все данные, добавленные через --add-data, будут здесь.
         base_path = sys._MEIPASS
     except AttributeError:
-        # Мы не в сборке PyInstaller. Нам нужно найти корень проекта.
-        # __file__ -> .../project_agent/core/file_processing.py
-        # Path(__file__).parent -> .../project_agent/core
-        # Path(__file__).parent.parent -> .../project_agent (это корень проекта)
         base_path = Path(__file__).resolve().parent.parent
-        
-    # os.path.join корректно соединит Path-объект и строку
     return os.path.join(base_path, relative_path_from_root)
 
 def calculate_file_hash(file_path):
@@ -49,16 +75,17 @@ def calculate_file_hash(file_path):
         return "error_calculating_hash"
 
 
-def count_file_tokens(file_path_str, log_widget_ref, model_name="gpt-4"):
+def count_file_tokens(file_path_str, log_widget_ref, model_name="gpt2"): # model_name больше не используется, но оставим для совместимости
     file_path_obj = Path(file_path_str)
     file_name_for_log = file_path_obj.name 
 
-    if not tiktoken:
-        if log_widget_ref:
-            try:
-                log_widget_ref.insert(tk.END, f"ПРЕДУПРЕЖДЕНИЕ: tiktoken не установлен. Токены для '{file_name_for_log}' не посчитаны.\n", ('error',))
-            except: pass
-        return None, "tiktoken не установлен"
+    # Проверяем, был ли токенизатор успешно инициализирован
+    if tokenizer is None:
+        # Если была ошибка при старте, возвращаем ее
+        if tokenizer_initialization_error:
+            return None, tokenizer_initialization_error
+        # Если не было ошибки, но токенизатор все равно None (например, transformers не установлен)
+        return None, "Токенизатор не инициализирован."
 
     try:
         file_size = file_path_obj.stat().st_size
@@ -87,13 +114,13 @@ def count_file_tokens(file_path_str, log_widget_ref, model_name="gpt-4"):
         return 0, None 
 
     try:
-        encoding = tiktoken.encoding_for_model(model_name)
-        num_tokens = len(encoding.encode(content))
+        # Используем токенизатор transformers
+        num_tokens = len(tokenizer.encode(content))
         return num_tokens, None
     except Exception as e:
-        log_message = f"ОШИБКА: tiktoken не смог обработать '{file_name_for_log}': {str(e)[:100]}"
+        log_message = f"ОШИБКА: Токенизатор не смог обработать '{file_name_for_log}': {str(e)[:100]}"
         if log_widget_ref:
             try:
                  log_widget_ref.insert(tk.END, log_message + "\n", ('error',))
             except: pass
-        return None, f"ошибка tiktoken: {str(e)[:50]}"
+        return None, f"ошибка токенизатора: {str(e)[:50]}"
