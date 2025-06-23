@@ -1,7 +1,7 @@
 # clipboard_logic.py
 import os
 import sys 
-import tkinter as tk # Для tk.END и type hinting
+import tkinter as tk # Для type hinting и tk.END и type hinting
 from pathlib import Path
 import pyperclip # Для копирования в буфер обмена
 
@@ -13,11 +13,7 @@ from core.treeview_logic import ( # Используем абсолютный и
 )
 from core.file_processing import resource_path 
 from core.project_structure_utils import generate_full_project_structure 
-
-try:
-    from gitignore_parser import parse_gitignore
-except ImportError:
-    parse_gitignore = None 
+from core.vendor.gitignore_parser import Matcher
 
 INSTRUCTION_FILE_NAMES = {
     "Markdown": "markdown_method.md",
@@ -99,21 +95,23 @@ def copy_project_files(
                 structure_text_output = generate_project_structure_text(tree_widget, project_dir_str, log_widget_ref)
             elif selected_structure_type == "all":
                 if log_widget_ref: log_widget_ref.insert(tk.END, "Генерация структуры проекта (все файлы)...\n", ('info',))
+                
                 current_gitignore_matcher = None
-                if parse_gitignore: 
-                    path_to_gitignore_in_project = Path(project_dir_str) / ".gitignore"
-                    if path_to_gitignore_in_project.is_file():
-                        try:
-                            current_gitignore_matcher = parse_gitignore(str(path_to_gitignore_in_project.resolve()))
-                            if log_widget_ref:
-                                log_widget_ref.insert(tk.END, f"Структура (полная): Используется .gitignore из '{path_to_gitignore_in_project}'.\n", ('info',))
-                        except Exception as e_parse_gi:
-                            if log_widget_ref:
-                                log_widget_ref.insert(tk.END, f"Структура (полная): Ошибка разбора .gitignore ('{path_to_gitignore_in_project}'): {e_parse_gi}\n", ('warning',))
-                    elif log_widget_ref:
-                        log_widget_ref.insert(tk.END, f"Структура (полная): Файл .gitignore не найден в '{project_dir_str}'.\n", ('info',))
-                elif log_widget_ref: 
-                     log_widget_ref.insert(tk.END, "Структура (полная): Библиотека gitignore-parser не найдена, .gitignore не будет использоваться.\n", ('info',))
+                project_root_path = Path(project_dir_str)
+                path_to_gitignore_in_project = project_root_path / ".gitignore"
+                if path_to_gitignore_in_project.is_file():
+                    try:
+                        with path_to_gitignore_in_project.open('r', encoding='utf-8') as f_gi:
+                            gi_lines = f_gi.readlines()
+                        base_dir_str = str(path_to_gitignore_in_project.parent.resolve())
+                        current_gitignore_matcher = Matcher(gi_lines, base_dir_str)
+                        if log_widget_ref:
+                            log_widget_ref.insert(tk.END, f"Структура (полная): Используется .gitignore из '{path_to_gitignore_in_project}'.\n", ('info',))
+                    except Exception as e_parse_gi:
+                        if log_widget_ref:
+                            log_widget_ref.insert(tk.END, f"Структура (полная): Ошибка разбора .gitignore ('{path_to_gitignore_in_project}'): {e_parse_gi}\n", ('warning',))
+                elif log_widget_ref:
+                    log_widget_ref.insert(tk.END, f"Структура (полная): Файл .gitignore не найден в '{project_dir_str}'.\n", ('info',))
 
                 structure_text_output = generate_full_project_structure(project_dir_str, log_widget_ref, current_gitignore_matcher)
             

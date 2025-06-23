@@ -351,11 +351,6 @@ try:
     except ImportError:
         if log_widget: log_widget.insert(tk.END, "ПРЕДУПРЕЖДЕНИЕ: Библиотека 'transformers' не найдена. Подсчет токенов не будет работать.\n", ('warning',))
     
-    try:
-        import gitignore_parser
-    except ImportError:
-        if log_widget: log_widget.insert(tk.END, "ПРЕДУПРЕЖДЕНИЕ: Библиотека 'gitignore-parser' не найдена...\n", ('warning',))
-
     if __name__ == "__main__":
         root.mainloop()
 

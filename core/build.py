@@ -54,7 +54,6 @@ def build_executable():
         "--hidden-import=tkinter.ttk",
         "--hidden-import=diff_match_patch",
         "--hidden-import=fnmatch", 
-        "--hidden-import=gitignore_parser",
         
         # Зависимости для Transformers
         "--hidden-import=transformers",
