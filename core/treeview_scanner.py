@@ -5,13 +5,14 @@ from pathlib import Path
 
 from core.fs_scanner_utils import (
     should_exclude_item, get_item_status_info,
-    DISABLED_LOOK_TAGS_UI
+    DISABLED_LOOK_TAGS_UI, TOO_MANY_TOKENS_STATUS_TAG,
+    ERROR_STATUS_TAG, BINARY_STATUS_TAG
 )
 from core.vendor.gitignore_parser import Matcher
-# --- ИЗМЕНЕНИЕ: Импорт из нового файла констант ---
 from core.treeview_constants import CHECKED_TAG, UNCHECKED_TAG
+from core.file_processing import count_file_tokens, MAX_TOKENS_FOR_DISPLAY
 
-def _populate_recursive_scan_and_count_tokens(
+def _populate_recursive_scan(
     cur_dir_obj: Path,
     parent_id_str: str,
     root_dir_obj: Path,
@@ -19,7 +20,6 @@ def _populate_recursive_scan_and_count_tokens(
     log_widget_ref,
     gitignore_matcher_func
 ):
-    total_tokens_folder = 0
     update_queue.put(("progress_step", cur_dir_obj.name))
 
     try:
@@ -31,7 +31,7 @@ def _populate_recursive_scan_and_count_tokens(
         perm_err_msg = str(e)
         update_queue.put(("log_message", (f"LOG_REC_SCAN: ПРЕДУПРЕЖДЕНИЕ: {perm_err_msg}", ('warning',))))
         update_queue.put(("update_node_data", (parent_id_str, 0, "ошибка доступа")))
-        return 0
+        return
 
     for item_path_obj in items:
         item_name, is_dir, item_id_str = item_path_obj.name, item_path_obj.is_dir(), str(item_path_obj)
@@ -49,22 +49,15 @@ def _populate_recursive_scan_and_count_tokens(
         rel_path = str(item_path_obj.relative_to(root_dir_obj)) if root_dir_obj in item_path_obj.parents else item_name
         data_dict = {
             'name_only': item_name, 'is_dir': is_dir, 'is_file': not is_dir,
-            'rel_path': rel_path, 'tokens': file_tokens if not is_dir else 0,
+            'rel_path': rel_path, 'tokens': file_tokens,
             'status_msg': status_msg
         }
         update_queue.put(("add_node", (parent_id_str, item_id_str, tuple(status_tags), str(item_path_obj), data_dict)))
 
         if is_dir:
-            tokens_subdir = _populate_recursive_scan_and_count_tokens(
+            _populate_recursive_scan(
                 item_path_obj, item_id_str, root_dir_obj, update_queue, log_widget_ref, gitignore_matcher_func
             )
-            if isinstance(tokens_subdir, (int, float)) and tokens_subdir >= 0:
-                total_tokens_folder += tokens_subdir
-                update_queue.put(("update_node_data", (item_id_str, tokens_subdir, data_dict.get('status_msg', ''))))
-        elif file_tokens is not None and isinstance(file_tokens, (int, float)) and file_tokens >= 0:
-            total_tokens_folder += file_tokens
-
-    return total_tokens_folder
 
 def scan_directory_and_populate_queue(abs_dir_path_str, update_queue, log_widget_ref):
     root_dir_obj = Path(abs_dir_path_str)
@@ -92,11 +85,52 @@ def scan_directory_and_populate_queue(abs_dir_path_str, update_queue, log_widget
     }
     update_queue.put(("add_node", ("", root_id, tuple(root_ui_tags), str(root_dir_obj), root_data)))
 
-    tokens_root = _populate_recursive_scan_and_count_tokens(
+    _populate_recursive_scan(
         root_dir_obj, root_id, root_dir_obj, update_queue, log_widget_ref, local_gitignore_matcher
     )
-
-    if isinstance(tokens_root, (int, float)) and tokens_root >= 0:
-        update_queue.put(("update_node_data", (root_id, tokens_root, root_status)))
     
-    update_queue.put(("finished", None))
+    update_queue.put(("finished", "initial_scan"))
+
+def token_calculation_worker(item_ids_to_process, update_queue, log_widget_ref):
+    """
+    Worker thread function to calculate tokens for a given list of file item IDs.
+    """
+    from core.treeview_logic import tree_item_paths 
+
+    update_queue.put(("progress_start", None))
+    update_queue.put(("log_message", ("Начат подсчет токенов для выбранных файлов...", ('info',))))
+    
+    processed_count = 0
+    total_count = len(item_ids_to_process)
+
+    for item_id in item_ids_to_process:
+        processed_count += 1
+        file_path_str = tree_item_paths.get(item_id)
+        if not file_path_str:
+            continue
+
+        file_path_obj = Path(file_path_str)
+        update_queue.put(("progress_step", f"({processed_count}/{total_count}) {file_path_obj.name}"))
+
+        token_val, token_err_msg = count_file_tokens(file_path_str, log_widget_ref)
+        
+        new_status_msg = ""
+        new_tags_to_add = set()
+
+        if token_err_msg:
+            new_status_msg = token_err_msg
+            if "бинарный" in token_err_msg:
+                new_tags_to_add.add(BINARY_STATUS_TAG)
+            else:
+                new_tags_to_add.add(ERROR_STATUS_TAG)
+        elif token_val is not None:
+            if token_val > MAX_TOKENS_FOR_DISPLAY:
+                new_tags_to_add.add(TOO_MANY_TOKENS_TAG_UI)
+                formatted_max = f"{MAX_TOKENS_FOR_DISPLAY:,}".replace(",", " ")
+                new_status_msg = f"токенов > {formatted_max}"
+
+        update_queue.put(("update_node_after_token_count", (item_id, token_val, new_status_msg, new_tags_to_add)))
+
+    update_queue.put(("log_message", ("Подсчет токенов для файлов завершен. Обновление папок...", ('info',))))
+    update_queue.put(("recalculate_folder_tokens", None))
+    update_queue.put(("finished", "token_count"))

@@ -28,7 +28,8 @@ GLOBAL_IGNORED_DIRS = {
 
 GLOBAL_IGNORED_FILES = {
     '.DS_Store', 'Thumbs.db', 'desktop.ini', '*.pyc', '*.pyo', '*.pyd',
-    '.so', '*.dll', '*.log', '*.tmp', '*.bak', '*.swp', '*.swo', '.coverage'
+    '.so', '*.dll', '*.log', '*.tmp', '*.bak', '*.swp', '*.swo', '.coverage',
+    'todo.md'
 } 
 
 EXCLUDED_BY_DEFAULT_PATTERNS = { 
@@ -61,12 +62,11 @@ def get_item_status_info(
     item_path_obj: Path,
     item_name: str,
     is_dir: bool,
-    log_widget_ref, 
-    model_name_for_tokens: str = "gpt-4"
+    log_widget_ref
 ):
     status_tags = set()
     status_message = ""
-    token_count = 0  
+    token_count = 0  # По умолчанию токены не считаются
 
     if is_dir:
         return status_tags, status_message, token_count
@@ -90,27 +90,7 @@ def get_item_status_info(
                 status_tags.add(LARGE_FILE_STATUS_TAG)
                 status_message = f"> {MAX_FILE_SIZE_BYTES // (1024*1024)}MB"
                 token_count = None
-            else:
-                token_val, token_err_msg = count_file_tokens(
-                    str(item_path_obj), log_widget_ref, model_name_for_tokens
-                )
-                
-                if token_err_msg:
-                    status_message = token_err_msg 
-                    token_count = None
-                    if "бинарный" in token_err_msg and BINARY_STATUS_TAG not in status_tags:
-                        status_tags.add(BINARY_STATUS_TAG)
-                    elif ERROR_STATUS_TAG not in status_tags:
-                         status_tags.add(ERROR_STATUS_TAG)
-                elif token_val is not None:
-                    token_count = token_val
-                    if token_count > MAX_TOKENS_FOR_DISPLAY:
-                        status_tags.add(TOO_MANY_TOKENS_STATUS_TAG)
-                        formatted_max_tokens = f"{MAX_TOKENS_FOR_DISPLAY:,}".replace(",", " ")
-                        if not status_message: 
-                            status_message = f"токенов > {formatted_max_tokens}"
-                        else: 
-                            status_message += f", токенов > {formatted_max_tokens}"
+            # Автоматический подсчет токенов при сканировании удален
 
     is_excluded_by_default = False
     for pattern in EXCLUDED_BY_DEFAULT_PATTERNS:

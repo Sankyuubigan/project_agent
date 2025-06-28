@@ -7,16 +7,17 @@ import threading
 import queue
 
 from core.fs_scanner_utils import DISABLED_LOOK_TAGS_UI
-from core.treeview_scanner import scan_directory_and_populate_queue
+from core.treeview_scanner import scan_directory_and_populate_queue, token_calculation_worker
 from core.treeview_constants import (
     CHECKED_TAG, UNCHECKED_TAG, TRISTATE_TAG,
     CHECK_CHAR, UNCHECK_CHAR, TRISTATE_CHAR,
-    TOO_MANY_TOKENS_TAG_UI
+    TOO_MANY_TOKENS_TAG_UI, ERROR_TAG_UI, BINARY_TAG_UI
 )
 
 tree_item_paths = {}
 tree_item_data = {}
 populate_thread = None
+token_thread = None
 update_queue = queue.Queue()
 gui_queue_processor_running = False
 last_processed_dir_path_str = None
@@ -86,12 +87,23 @@ def _process_tree_updates(tree, progress_bar, progress_label, log_widget_ref):
                 tree_item_data[item_id] = node_data
                 tree.insert(parent_id, tk.END, iid=item_id, open=False, tags=tags)
                 _update_item_display(tree, item_id)
-        elif action == "update_node_data":
-            item_id, tokens, status = data
+        elif action == "update_node_after_token_count":
+            item_id, tokens, status_msg, new_tags = data
             if tree.exists(item_id) and item_id in tree_item_data:
                 tree_item_data[item_id]['tokens'] = tokens
-                tree_item_data[item_id]['status_msg'] = status
+                tree_item_data[item_id]['status_msg'] = status_msg
+                
+                current_tags = set(tree.item(item_id, 'tags'))
+                current_tags.discard(TOO_MANY_TOKENS_TAG_UI)
+                current_tags.discard(ERROR_TAG_UI)
+                current_tags.discard(BINARY_TAG_UI)
+                current_tags.update(new_tags)
+                tree.item(item_id, tags=tuple(current_tags))
+
                 _update_item_display(tree, item_id)
+        elif action == "recalculate_folder_tokens":
+            update_all_folder_tokens(tree)
+            update_selected_tokens_display(tree, getattr(tree, 'selected_tokens_label_ref', None))
         elif action == "log_message":
             if log_widget_ref and log_widget_ref.winfo_exists():
                 msg, tags = (data, ()) if isinstance(data, str) else data
@@ -100,11 +112,16 @@ def _process_tree_updates(tree, progress_bar, progress_label, log_widget_ref):
             if progress_bar.winfo_exists(): progress_bar.stop(); progress_bar.grid_remove()
             if progress_label.winfo_exists(): progress_label.grid_remove()
             
+            finish_type = data
             tokens_label = getattr(tree, 'selected_tokens_label_ref', None)
-            if tree.get_children(""): set_all_tree_check_state(tree, True, tokens_label)
-            
-            if log_widget_ref and log_widget_ref.winfo_exists():
-                log_widget_ref.insert(tk.END, "Заполнение дерева завершено.\n", ('info',)); log_widget_ref.see(tk.END)
+
+            if finish_type == "initial_scan":
+                if tree.get_children(""): set_all_tree_check_state(tree, True, tokens_label)
+                if log_widget_ref and log_widget_ref.winfo_exists():
+                    log_widget_ref.insert(tk.END, "Заполнение дерева завершено.\n", ('info',)); log_widget_ref.see(tk.END)
+            elif finish_type == "token_count":
+                if log_widget_ref and log_widget_ref.winfo_exists():
+                    log_widget_ref.insert(tk.END, "Обновление токенов завершено.\n", ('success',)); log_widget_ref.see(tk.END)
             
             gui_queue_processor_running = False
             return
@@ -134,7 +151,7 @@ def populate_file_tree_threaded(dir_path, tree, log_widget, p_bar, p_label, forc
         msg = f"Ошибка: '{dir_path}' не директория." if dir_path else "Выберите директорию."
         msg_data = {'name_only': msg, 'is_dir': False, 'is_file': False, 'status_msg': '', 'tokens': 0}
         update_queue.put(("add_node", ("", "msg_node_invalid", ('message', UNCHECKED_TAG), "", msg_data)))
-        update_queue.put(("finished", None))
+        update_queue.put(("finished", "initial_scan"))
 
     if not gui_queue_processor_running:
         gui_queue_processor_running = True
@@ -243,6 +260,61 @@ def set_all_tree_check_state(tree, is_checked, tokens_label):
     for item_id in tree.get_children(""):
         set_check_state_recursive(tree, item_id, is_checked)
     update_selected_tokens_display(tree, tokens_label)
+
+def update_all_folder_tokens(tree):
+    """Recursively calculates and updates token counts for all folders based on their children."""
+    
+    def _recursive_sum(item_id):
+        if not tree.exists(item_id) or item_id not in tree_item_data:
+            return 0
+        
+        data = tree_item_data[item_id]
+        if data.get('is_file'):
+            return data.get('tokens', 0) or 0
+
+        child_tokens = 0
+        for child_id in tree.get_children(item_id):
+            child_tokens += _recursive_sum(child_id)
+        
+        data['tokens'] = child_tokens
+        _update_item_display(tree, item_id)
+        return child_tokens
+
+    for item_id in tree.get_children(""):
+        _recursive_sum(item_id)
+
+def calculate_tokens_for_selected_threaded(tree, log_widget, p_bar, p_label):
+    global token_thread, gui_queue_processor_running
+
+    if token_thread and token_thread.is_alive():
+        if log_widget.winfo_exists(): log_widget.insert(tk.END, "Процесс подсчета токенов уже запущен...\n", ('info',))
+        return
+
+    items_to_process = []
+    q = list(tree.get_children(""))
+    while q:
+        item_id = q.pop(0)
+        if not tree.exists(item_id) or item_id not in tree_item_data:
+            continue
+        
+        tags = set(tree.item(item_id, 'tags'))
+        data = tree_item_data[item_id]
+
+        if data.get('is_file') and CHECKED_TAG in tags and not DISABLED_LOOK_TAGS_UI.intersection(tags):
+            items_to_process.append(item_id)
+        
+        q.extend(tree.get_children(item_id))
+
+    if not items_to_process:
+        if log_widget.winfo_exists(): log_widget.insert(tk.END, "Не выбрано файлов для подсчета токенов.\n", ('info',))
+        return
+
+    token_thread = threading.Thread(target=token_calculation_worker, args=(items_to_process, update_queue, log_widget), daemon=True)
+    token_thread.start()
+
+    if not gui_queue_processor_running:
+        gui_queue_processor_running = True
+        tree.after_idle(lambda: _process_tree_updates(tree, p_bar, p_label, log_widget))
 
 def generate_project_structure_text(tree, root_dir_path, log_widget):
     if not root_dir_path or not Path(root_dir_path).is_dir():

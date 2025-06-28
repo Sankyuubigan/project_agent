@@ -17,7 +17,7 @@ if __name__ == "__main__":
 from core.patching import process_input 
 from core.treeview_logic import (
     populate_file_tree_threaded, on_tree_click, set_all_tree_check_state,
-    update_selected_tokens_display
+    update_selected_tokens_display, calculate_tokens_for_selected_threaded
 )
 from core.treeview_constants import (
     CHECKED_TAG, TRISTATE_TAG,
@@ -178,6 +178,14 @@ deselect_all_button = tk.Button(
     command=lambda: set_all_tree_check_state(file_tree, False, selected_tokens_label)
 )
 deselect_all_button.pack(side=tk.LEFT)
+
+calculate_tokens_button = tk.Button(
+    tree_buttons_frame, text="Посчитать токены",
+    command=lambda: calculate_tokens_for_selected_threaded(
+        file_tree, log_widget, progress_bar, progress_status_label
+    )
+)
+calculate_tokens_button.pack(side=tk.LEFT, padx=(5, 0))
 
 copy_options_frame = tk.Frame(right_frame)
 copy_options_frame.pack(fill=tk.X, pady=(5,0), padx=5)
