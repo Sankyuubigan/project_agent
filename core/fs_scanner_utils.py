@@ -2,10 +2,9 @@
 import os
 from pathlib import Path
 import fnmatch as fnmatch_lib
-import tkinter as tk # Для type hinting и tk.END, если log_widget используется
+import tkinter as tk
 
-# Импортируем необходимые компоненты из file_processing
-from core.file_processing import ( # Используем абсолютный импорт от корня пакета
+from core.file_processing import (
     count_file_tokens, BINARY_EXTENSIONS, MAX_FILE_SIZE_BYTES, MAX_TOKENS_FOR_DISPLAY
 )
 
@@ -15,7 +14,12 @@ ERROR_STATUS_TAG = "status_error"
 EXCLUDED_BY_DEFAULT_STATUS_TAG = "status_excluded_default"
 TOO_MANY_TOKENS_STATUS_TAG = "status_too_many_tokens"
 
-# ДОБАВЛЕНЫ .conda, .condaenv, env для надежности
+DISABLED_LOOK_TAGS_UI = {
+    BINARY_STATUS_TAG,
+    LARGE_FILE_STATUS_TAG,
+    ERROR_STATUS_TAG
+}
+
 GLOBAL_IGNORED_DIRS = {
     '.git', '__pycache__', '.vscode', '.idea', 'node_modules', 'venv', '.env',
     'build', 'dist', 'out', 'target', '.pytest_cache', '.mypy_cache', '.tox',
@@ -24,7 +28,7 @@ GLOBAL_IGNORED_DIRS = {
 
 GLOBAL_IGNORED_FILES = {
     '.DS_Store', 'Thumbs.db', 'desktop.ini', '*.pyc', '*.pyo', '*.pyd',
-    '*.so', '*.dll', '*.log', '*.tmp', '*.bak', '*.swp', '*.swo', '.coverage'
+    '.so', '*.dll', '*.log', '*.tmp', '*.bak', '*.swp', '*.swo', '.coverage'
 } 
 
 EXCLUDED_BY_DEFAULT_PATTERNS = { 
@@ -48,11 +52,8 @@ def should_exclude_item(
                 return True
 
     if gitignore_matcher_func and callable(gitignore_matcher_func):
-        try:
-            if gitignore_matcher_func(item_path_obj): 
-                return True
-        except Exception:
-            pass
+        if gitignore_matcher_func(item_path_obj): 
+            return True
             
     return False
 
@@ -63,35 +64,30 @@ def get_item_status_info(
     log_widget_ref, 
     model_name_for_tokens: str = "gpt-4"
 ):
-    status_list_of_tags = [] 
+    status_tags = set()
     status_message = ""
     token_count = 0  
 
     if is_dir:
-        return status_list_of_tags, status_message, token_count
+        return status_tags, status_message, token_count
 
     if item_path_obj.suffix.lower() in BINARY_EXTENSIONS:
-        status_list_of_tags.append(BINARY_STATUS_TAG)
+        status_tags.add(BINARY_STATUS_TAG)
         status_message = "бинарный"
         token_count = None  
     else:
         file_size = -1
-        try:
-            if hasattr(item_path_obj, 'stat'):
-                stat_result = item_path_obj.stat()
-                file_size = stat_result.st_size
-            else: 
-                status_list_of_tags.append(ERROR_STATUS_TAG)
-                status_message = "неверный объект пути"
-                token_count = None
-        except OSError as e:
-            status_list_of_tags.append(ERROR_STATUS_TAG)
-            status_message = f"ошибка доступа к файлу: {e.strerror}"
+        if item_path_obj.exists():
+            stat_result = item_path_obj.stat()
+            file_size = stat_result.st_size
+        else: 
+            status_tags.add(ERROR_STATUS_TAG)
+            status_message = "неверный объект пути"
             token_count = None
         
         if token_count is not None and file_size != -1: 
             if file_size > MAX_FILE_SIZE_BYTES:
-                status_list_of_tags.append(LARGE_FILE_STATUS_TAG)
+                status_tags.add(LARGE_FILE_STATUS_TAG)
                 status_message = f"> {MAX_FILE_SIZE_BYTES // (1024*1024)}MB"
                 token_count = None
             else:
@@ -102,14 +98,14 @@ def get_item_status_info(
                 if token_err_msg:
                     status_message = token_err_msg 
                     token_count = None
-                    if "бинарный" in token_err_msg and BINARY_STATUS_TAG not in status_list_of_tags:
-                        status_list_of_tags.append(BINARY_STATUS_TAG)
-                    elif ERROR_STATUS_TAG not in status_list_of_tags:
-                         status_list_of_tags.append(ERROR_STATUS_TAG)
+                    if "бинарный" in token_err_msg and BINARY_STATUS_TAG not in status_tags:
+                        status_tags.add(BINARY_STATUS_TAG)
+                    elif ERROR_STATUS_TAG not in status_tags:
+                         status_tags.add(ERROR_STATUS_TAG)
                 elif token_val is not None:
                     token_count = token_val
                     if token_count > MAX_TOKENS_FOR_DISPLAY:
-                        status_list_of_tags.append(TOO_MANY_TOKENS_STATUS_TAG)
+                        status_tags.add(TOO_MANY_TOKENS_STATUS_TAG)
                         formatted_max_tokens = f"{MAX_TOKENS_FOR_DISPLAY:,}".replace(",", " ")
                         if not status_message: 
                             status_message = f"токенов > {formatted_max_tokens}"
@@ -123,9 +119,9 @@ def get_item_status_info(
             break
     
     if is_excluded_by_default:
-        if EXCLUDED_BY_DEFAULT_STATUS_TAG not in status_list_of_tags:
-            status_list_of_tags.append(EXCLUDED_BY_DEFAULT_STATUS_TAG)
+        if EXCLUDED_BY_DEFAULT_STATUS_TAG not in status_tags:
+            status_tags.add(EXCLUDED_BY_DEFAULT_STATUS_TAG)
         if not status_message: 
             status_message = "исключен по умолчанию"
             
-    return status_list_of_tags, status_message, token_count
+    return status_tags, status_message, token_count
