@@ -35,7 +35,7 @@ APP_VERSION = datetime.now().strftime("%y.%m.%d")
 
 root = tk.Tk()
 root.title(f"Project Agent v{APP_VERSION}") 
-root.geometry("1100x850") 
+root.geometry("1200x850") 
 
 style = ttk.Style()
 if 'clam' in style.theme_names(): 
@@ -73,9 +73,11 @@ progress_status_label.grid_remove()
 
 main_frame = tk.Frame(root)
 main_frame.pack(pady=(0, 10), padx=10, fill=tk.BOTH, expand=True)
+main_frame.grid_columnconfigure(0, weight=1, minsize=400)
+main_frame.grid_columnconfigure(1, weight=0, minsize=600)
 
 left_frame = tk.Frame(main_frame)
-left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+left_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
 
 input_area_frame = tk.Frame(left_frame) 
 input_area_frame.pack(fill=tk.BOTH, expand=True)
@@ -120,9 +122,8 @@ clear_input_button = tk.Button(
 )
 clear_input_button.pack(side=tk.LEFT, padx=5)
 
-right_frame = tk.Frame(main_frame, width=500) 
-right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=False)
-right_frame.pack_propagate(False) 
+right_frame = tk.Frame(main_frame)
+right_frame.grid(row=0, column=1, sticky="nsew")
 
 tk.Label(right_frame, text="Выберите файлы/папки для копирования:").pack(anchor=tk.W, padx=5)
 
@@ -144,8 +145,8 @@ file_tree.pack(fill=tk.BOTH, expand=True)
 tree_scrollbar_y.config(command=file_tree.yview)
 tree_scrollbar_x.config(command=file_tree.xview)
 
-file_tree.column('#0', width=350, stretch=tk.YES) 
-file_tree.column('checkbox', width=40, stretch=tk.NO, anchor='center')
+file_tree.column('#0', width=380, stretch=tk.YES, minwidth=200) 
+file_tree.column('checkbox', width=60, stretch=tk.NO, anchor='center', minwidth=60)
 file_tree.heading('checkbox', text='')
 
 # --- ИЗМЕНЕНИЕ: Возвращаем подсветку цветом ---

@@ -154,6 +154,17 @@ def apply_markdown_changes(project_dir, file_data, log_widget):
             if log_widget.winfo_exists(): log_widget.insert(tk.END, f"{log_prefix}БЕЗОПАСНОСТЬ: Запись вне проекта: '{rel_path}'. Пропущено.\n", ('error',))
             errors += 1; continue
 
+        if not content.strip():
+            if full_path.is_file():
+                os.remove(full_path)
+                if log_widget.winfo_exists():
+                    log_widget.insert(tk.END, f"{log_prefix}Файл удалён: {rel_path}\n", ('success',))
+                success += 1
+            else:
+                if log_widget.winfo_exists():
+                    log_widget.insert(tk.END, f"{log_prefix}Файл '{rel_path}' не существует, удаление не требуется.\n", ('info',))
+            continue
+
         file_existed = full_path.is_file()
         full_path.parent.mkdir(parents=True, exist_ok=True)
         # This will crash on permission errors.

@@ -5,8 +5,8 @@ from pathlib import Path
 import hashlib
 import tkinter as tk 
 
-# This import will crash the app if 'transformers' is not installed.
-from transformers import AutoTokenizer
+# Lightweight tokenizer (tiktoken instead of transformers)
+import tiktoken
 
 # Global variable for storing the initialized tokenizer
 tokenizer = None
@@ -19,7 +19,7 @@ MAX_TOKENS_FOR_DISPLAY = 50000
 
 def initialize_tokenizer(log_widget_ref=None):
     """
-    Initializes the Hugging Face tokenizer. This will crash if it fails.
+    Initializes the tokenizer (tiktoken/gpt2). This will crash if it fails.
     """
     global tokenizer, tokenizer_initialization_error
     if tokenizer is not None or tokenizer_initialization_error is not None:
@@ -28,8 +28,11 @@ def initialize_tokenizer(log_widget_ref=None):
     if log_widget_ref and log_widget_ref.winfo_exists():
         log_widget_ref.insert(tk.END, "Инициализация токенизатора 'gpt2'...\n", ('info',))
     
-    # This will crash on network error or other issues.
-    tokenizer = AutoTokenizer.from_pretrained("gpt2")
+    try:
+        tokenizer = tiktoken.get_encoding("gpt2")
+    except Exception:
+        from tiktoken_ext.openai_public import gpt2 as _gpt2_ctor
+        tokenizer = tiktoken.Encoding(**_gpt2_ctor())
     
     if log_widget_ref and log_widget_ref.winfo_exists():
         log_widget_ref.insert(tk.END, "Токенизатор успешно инициализирован.\n", ('success',))
@@ -37,12 +40,24 @@ def initialize_tokenizer(log_widget_ref=None):
 def resource_path(relative_path_from_root):
     """
     Returns the absolute path to a resource.
+    Checks in order: MEIPASS > exe dir > source dir.
     """
+    # 1) PyInstaller MEIPASS
     if hasattr(sys, '_MEIPASS'):
-        base_path = sys._MEIPASS
-    else:
-        base_path = Path(__file__).resolve().parent.parent
-    return os.path.join(base_path, relative_path_from_root)
+        candidate = os.path.join(sys._MEIPASS, relative_path_from_root)
+        if os.path.exists(candidate):
+            return candidate
+
+    # 2) Next to the exe
+    try:
+        candidate = os.path.join(os.path.dirname(sys.executable), relative_path_from_root)
+        if os.path.exists(candidate):
+            return candidate
+    except Exception:
+        pass
+
+    # 3) Development mode (relative to project root)
+    return os.path.join(str(Path(__file__).resolve().parent.parent), relative_path_from_root)
 
 def calculate_file_hash(file_path):
     hasher = hashlib.sha256()

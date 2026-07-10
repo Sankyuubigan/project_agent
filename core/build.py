@@ -42,26 +42,20 @@ def build_executable():
         "--hidden-import=pyperclip",
         "--hidden-import=tkinter.ttk",
         "--hidden-import=diff_match_patch",
-        "--hidden-import=fnmatch", 
-        "--hidden-import=transformers",
-        "--hidden-import=transformers.models",
-        "--hidden-import=transformers.tokenization_utils",
-        "--hidden-import=transformers.tokenization_utils_fast",
-        "--hidden-import=tokenizers",
-        "--hidden-import=tokenizers.models",
-        "--hidden-import=tokenizers.pre_tokenizers",
-        "--hidden-import=tokenizers.processors",
-        "--hidden-import=tokenizers.decoders",
-        "--hidden-import=tokenizers.normalizers",
-        "--hidden-import=safetensors",
-        "--hidden-import=huggingface_hub",
-        "--hidden-import=regex",
-        "--hidden-import=requests",
-        "--hidden-import=packaging",
-        "--hidden-import=filelock",
-        "--hidden-import=numpy",
-        "--hidden-import=pyyaml",
-        "--hidden-import=tqdm",
+        "--hidden-import=fnmatch",
+        "--hidden-import=tiktoken",
+        "--hidden-import=tiktoken_ext.openai_public",
+        "--exclude-module=torch",
+        "--exclude-module=torchaudio",
+        "--exclude-module=torchvision",
+        "--exclude-module=transformers",
+        "--exclude-module=tensorflow",
+        "--exclude-module=onnx",
+        "--exclude-module=onnxruntime",
+        "--exclude-module=pandas",
+        "--exclude-module=matplotlib",
+        "--exclude-module=scipy",
+        "--exclude-module=sklearn",
     ]
 
     if not console: args.append("--noconsole")
@@ -141,6 +135,15 @@ def build_executable():
         
         print(f"Переименование {generated_exe_path} в {final_exe_path}")
         shutil.move(str(generated_exe_path), str(final_exe_path))
+
+        # Копируем doc/ рядом с exe для fallback
+        doc_dest = dist_dir / "doc"
+        if doc_dest.exists():
+            shutil.rmtree(doc_dest)
+        if instructions_source_dir.exists():
+            shutil.copytree(instructions_source_dir, doc_dest)
+            print(f"Папка 'doc' скопирована в '{dist_dir}' для fallback.")
+
         print(f"\nСборка завершена! Файл: '{final_exe_path}'")
         print(f".spec файл: '{fixed_spec_filename}'")
     else:
