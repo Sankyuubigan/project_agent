@@ -23,12 +23,19 @@ class Matcher:
             if is_negation:
                 line = line[1:]
 
-            is_anchored = "/" in line.strip('/')
             is_dir_only = line.endswith('/')
-            pattern_to_match = line.strip('/')
+            pattern_raw = line.strip('/')
+
+            if line.startswith('/'):
+                is_anchored = True
+            elif line.startswith('**/'):
+                is_anchored = False
+                pattern_raw = line[3:].strip('/')
+            else:
+                is_anchored = "/" in line.strip('/')
 
             compiled.append({
-                "pattern": pattern_to_match,
+                "pattern": pattern_raw,
                 "is_negation": is_negation,
                 "is_dir_only": is_dir_only,
                 "is_anchored": is_anchored,
