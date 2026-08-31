@@ -8,7 +8,7 @@ from core.fs_scanner_utils import (
     DISABLED_LOOK_TAGS_UI, TOO_MANY_TOKENS_STATUS_TAG,
     ERROR_STATUS_TAG, BINARY_STATUS_TAG
 )
-from core.vendor.gitignore_parser import Matcher
+from core.vendor.gitignore_parser import Matcher, CombinedMatcher
 from core.treeview_constants import CHECKED_TAG, UNCHECKED_TAG
 from core.file_processing import count_file_tokens, MAX_TOKENS_FOR_DISPLAY
 
@@ -55,8 +55,22 @@ def _populate_recursive_scan(
         update_queue.put(("add_node", (parent_id_str, item_id_str, tuple(status_tags), str(item_path_obj), data_dict)))
 
         if is_dir:
+            child_matcher = gitignore_matcher_func
+            local_gi = item_path_obj / ".gitignore"
+            if local_gi.is_file():
+                try:
+                    with local_gi.open('r', encoding='utf-8') as f:
+                        lines = f.readlines()
+                    base_dir = str(local_gi.parent.resolve())
+                    local_matcher = Matcher(lines, base_dir)
+                    if gitignore_matcher_func and callable(gitignore_matcher_func):
+                        child_matcher = CombinedMatcher([gitignore_matcher_func, local_matcher])
+                    else:
+                        child_matcher = local_matcher
+                except Exception:
+                    pass
             _populate_recursive_scan(
-                item_path_obj, item_id_str, root_dir_obj, update_queue, log_widget_ref, gitignore_matcher_func
+                item_path_obj, item_id_str, root_dir_obj, update_queue, log_widget_ref, child_matcher
             )
 
 def scan_directory_and_populate_queue(abs_dir_path_str, update_queue, log_widget_ref):

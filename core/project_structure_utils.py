@@ -4,6 +4,7 @@ from pathlib import Path
 import tkinter as tk
 
 from core.fs_scanner_utils import should_exclude_item
+from core.vendor.gitignore_parser import Matcher, CombinedMatcher
 
 LINE_VERTICAL = "│   "
 LINE_INTERSECTION = "├── "
@@ -48,9 +49,23 @@ def _generate_structure_recursive_for_full(
         if item_obj.is_dir():
             entry_line += "/"
             lines.append(entry_line)
+            child_matcher = gitignore_matcher_func
+            local_gi = item_obj / ".gitignore"
+            if local_gi.is_file():
+                try:
+                    with local_gi.open('r', encoding='utf-8') as f:
+                        lines_gi = f.readlines()
+                    base_dir = str(local_gi.parent.resolve())
+                    local_matcher = Matcher(lines_gi, base_dir)
+                    if gitignore_matcher_func and callable(gitignore_matcher_func):
+                        child_matcher = CombinedMatcher([gitignore_matcher_func, local_matcher])
+                    else:
+                        child_matcher = local_matcher
+                except Exception:
+                    pass
             lines.extend(_generate_structure_recursive_for_full(
                 item_obj, project_root_obj, new_prefix_for_children,
-                gitignore_matcher_func, log_widget_ref
+                child_matcher, log_widget_ref
             ))
         else: 
             lines.append(entry_line)

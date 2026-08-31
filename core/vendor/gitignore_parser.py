@@ -78,3 +78,20 @@ class Matcher:
                     ignored = True
         
         return ignored
+
+
+class CombinedMatcher:
+    """
+    Combines multiple Matcher instances for nested .gitignore support.
+    Each matcher applies rules from a .gitignore file at a different directory level.
+    Later matchers (closer to the target) override earlier ones.
+    """
+    def __init__(self, matchers: list):
+        self.matchers = matchers
+
+    def __call__(self, path_to_check):
+        ignored = False
+        for matcher in self.matchers:
+            if matcher(path_to_check):
+                ignored = True
+        return ignored
