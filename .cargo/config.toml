@@ -1,0 +1,5 @@
+# tauri-build-toolkit ищет exe в src-tauri/target/release/<appExe>.exe.
+# Чтобы и tauri build, и cargo test (root workspace) складывали артефакты
+# в одно место, target-dir перенаправлен из корневого target/ сюда.
+[build]
+target-dir = "src-tauri/target"

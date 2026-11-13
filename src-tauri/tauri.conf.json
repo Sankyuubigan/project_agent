@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "VibeBridge",
+  "mainBinaryName": "VibeBridge",
+  "version": "26.11.0",
+  "identifier": "com.vibebridge.desktop",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "windows": [],
+    "withGlobalTauri": false,
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/icon.ico"]
+  },
+  "plugins": {
+    "logs": {
+      "last_logs": true,
+      "log_file_name": "vibebridge.log"
+    }
+  }
+}

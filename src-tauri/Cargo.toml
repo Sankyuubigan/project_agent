@@ -1,0 +1,23 @@
+[package]
+name = "vibebridge"
+version.workspace = true
+edition.workspace = true
+description = "VibeBridge: мост «проект ↔ веб-чат LLM» — сборка промпта и применение правок. Без WebView2 (egui)."
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2.7.0", features = ["unstable"] }
+tauri-plugin-logs = { path = "../../my-tauri-plugins/tauri-plugin-logs" }
+tauri-plugin-egui = { path = "../../my-tauri-plugins/tauri-plugin-egui" }
+agent-core = { path = "../crates/agent-core" }
+log = "0.4"
+arboard = "3"
+serde_json = "1"
+# CF_HDROP: список файлов «как из Проводника» (картинки в чат одним Ctrl+V).
+clipboard-win = "5"
+# PNG-кодирование картинок из буфера (чистый Rust, без cc).
+png = "0.17"
+# Нативные диалоги выбора папки/файлов.
+rfd = "0.15"

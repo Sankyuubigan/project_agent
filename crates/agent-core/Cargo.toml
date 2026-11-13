@@ -1,0 +1,16 @@
+[package]
+name = "agent-core"
+version.workspace = true
+edition.workspace = true
+description = "Ядро VibeBridge: парсер/аплаер «Умного Markdown», сканер дерева, токены, сборщик промпта. Без tauri/egui."
+
+[dependencies]
+# Крейты без C-компоненты (анти-`cl.exe D8050`, вердикт спеца №5).
+log = "0.4"
+ignore = "0.4"
+tiktoken-rs = "0.7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"

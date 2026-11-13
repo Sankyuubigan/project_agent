@@ -1,0 +1,15 @@
+{
+  "appExe": "VibeBridge",
+  "productName": "VibeBridge",
+  "npmInstallArgs": ["--legacy-peer-deps"],
+  "syncDirs": ["doc"],
+  "vcRedist": true,
+  "vcRedistDlls": ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll", "msvcp140_1.dll", "concrt140.dll"],
+  "signing": {
+    "keyPath": "",
+    "passwordFile": "",
+    "password": ""
+  },
+  "syncPackageJsonVersion": false,
+  "releaseNotesTemplate": "VibeBridge ${tag}"
+}

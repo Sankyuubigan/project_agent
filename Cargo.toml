@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = ["crates/agent-core", "src-tauri"]
+
+[workspace.package]
+version = "26.11.0"
+edition = "2021"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
