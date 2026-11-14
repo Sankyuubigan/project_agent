@@ -1,0 +1,11 @@
+{
+  "version": "26.11.2",
+  "notes": "VibeBridge 26.11.2",
+  "pub_date": "2026-11-14T20:02:59.760Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVURlh4c2JxZjRQYTFTYlVLZ0lDdGUvS013aHlIS3lJSWVqaEdaRVhYM1VaVjhVZmc1SitBWVRSQm55RFpLMFgyaFZJdndxQW1Tb0xpaUpOQUhnY25FaFR3SWxRcnV2eUFBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0Njg2NTczCWZpbGU6VmliZUJyaWRnZV8yNi4xMS4yX3g2NC1zZXR1cC5leGUKQXRBYk5kYWlKYzUxTWxSWjM1OFUvUWtuNGtrdmNBOHhPVzlLQTM3cUY1dlJkcDBlOUx5RkQwUjFIRkVBSXEwVVdOblhIc1pvYnp2UFg0UC9mRE1pRHc9PQo=",
+      "url": "https://github.com/Sankyuubigan/project_agent/releases/download/v26.11.2/VibeBridge_26.11.2_x64-setup.exe"
+    }
+  }
+}
