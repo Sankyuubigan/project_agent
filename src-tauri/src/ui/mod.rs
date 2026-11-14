@@ -7,6 +7,7 @@
 mod downlink;
 mod draft_view;
 mod logs_view;
+mod settings_view;
 mod style;
 mod tree_widget;
 mod uplink;
@@ -20,6 +21,7 @@ use tauri_plugin_egui::egui;
 use crate::worker::{self, Command, Event};
 use downlink::DownlinkState;
 use draft_view::DraftState;
+use settings_view::SettingsState;
 use uplink::UplinkState;
 
 /// Период фоновой перерисовки в простое (реактивный рендер: без 60 FPS).
@@ -29,6 +31,7 @@ const IDLE_REPAINT: Duration = Duration::from_millis(500);
 enum Tab {
     Main,
     Logs,
+    Settings,
 }
 
 /// Пути приложения (правило владельца §6: всё от папки exe).
@@ -46,6 +49,7 @@ pub struct AppUi {
     uplink: UplinkState,
     downlink: DownlinkState,
     draft: DraftState,
+    settings: SettingsState,
     logs: logs_view::LogView,
     /// Шрифты применены (однократно перед первым кадром).
     styled: bool,
@@ -57,7 +61,7 @@ pub struct AppUi {
 
 impl AppUi {
     pub fn new(paths: AppPaths) -> Self {
-        let (cmd_tx, event_rx) = worker::spawn();
+        let (cmd_tx, event_rx) = worker::spawn(paths.base.clone());
 
         // Конфиг: последняя папка проекта → сразу сканируем.
         let cfg = agent_core::config::load(&paths.base);
@@ -79,6 +83,9 @@ impl AppUi {
             draft.manifest().attachments.len()
         );
 
+        // Настройки: читают конфиг ДО перемещения paths в стейт.
+        let settings = SettingsState::load(&paths.base);
+
         Self {
             tab: Tab::Main,
             cmd_tx,
@@ -87,6 +94,7 @@ impl AppUi {
             uplink,
             downlink: DownlinkState::new(),
             draft,
+            settings,
             logs: logs_view::LogView::new(),
             styled: false,
             dark: true,
@@ -125,6 +133,7 @@ impl AppUi {
                     ui.separator();
                     ui.selectable_value(&mut self.tab, Tab::Main, "Главная");
                     ui.selectable_value(&mut self.tab, Tab::Logs, "Логи");
+                    ui.selectable_value(&mut self.tab, Tab::Settings, "⚙ Настройки");
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let glyph = if self.dark { "☀" } else { "🌙" };
                         if ui.button(glyph).clicked() {
@@ -139,15 +148,25 @@ impl AppUi {
         match self.tab {
             Tab::Main => self.draw_main(ctx),
             Tab::Logs => self.logs.draw(ctx),
+            Tab::Settings => self.settings.draw(ctx, &self.paths.base),
         }
     }
 
-    /// Неблокирующее чтение событий воркера (скан, токены).
+    /// Неблокирующее чтение событий воркера (скан, токены, AI-подбор).
     fn poll_events(&mut self) {
         while let Ok(ev) = self.event_rx.try_recv() {
             match ev {
                 Event::Scanned { root, out } => self.uplink.on_scanned(&root, out),
                 Event::Tokens { root, rel, count } => self.uplink.on_tokens(&root, &rel, count),
+                Event::AiStatus { root, msg } => self.uplink.on_ai_status(&root, &msg),
+                Event::AiPicked { root, selected, reasoning } => {
+                    self.uplink.on_ai_picked(&root, &selected, &reasoning);
+                    self.draft.on_ai_finished(&root);
+                }
+                Event::AiPickFailed { root, msg } => {
+                    self.uplink.on_ai_failed(&root, &msg);
+                    self.draft.on_ai_finished(&root);
+                }
             }
         }
     }
@@ -181,7 +200,17 @@ impl AppUi {
             // (рамки правого края не было видно, кнопки обрезались).
             egui::TopBottomPanel::bottom("draft_panel").show_inside(ui, |ui| {
                 style::card_frame(ui.ctx()).show(ui, |ui| {
-                    self.draft.draw(ui);
+                    // selectable-пути скана — для тулов AI-подбора (find_files,
+                    // анти-галлюцинация); заимствование uplink кончается до
+                    // мутаций внутри draw.
+                    let project_paths = self.uplink.selectable_relative_paths();
+                    self.draft.draw(
+                        ui,
+                        &self.cmd_tx,
+                        self.uplink.root(),
+                        self.uplink.scan_ready(),
+                        &project_paths,
+                    );
                 });
             });
         });

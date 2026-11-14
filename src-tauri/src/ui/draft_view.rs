@@ -5,7 +5,10 @@
 //! атомарно) — переживает перезапуск. Копирование: текст — промпт + текстовые
 //! вложения FILE-блоками; картинки — CF_HDROP отдельной кнопкой.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Sender;
+use std::sync::Arc;
 
 use tauri_plugin_egui::egui;
 
@@ -13,6 +16,7 @@ use agent_core::draft::{DraftAttachment, DraftManifest, DraftStore};
 
 use super::style;
 use crate::clipboard;
+use crate::worker::Command;
 
 /// Состояние черновика: хранилище + манифест + снимок последнего сохранения.
 pub struct DraftState {
@@ -22,6 +26,11 @@ pub struct DraftState {
     /// Контент, чьё сохранение уже провалилось (не ретраить на каждый кадр).
     failed_snapshot: Option<DraftManifest>,
     status: Option<String>,
+    /// AI-подбор в работе: (root, cancel-флаг). Флаг живёт в UI: кнопка
+    /// «Отменить» поднимает его напрямую, минуя командный канал. Смена папки
+    /// проекта сбрасывает busy автоматически (старый результат uplink
+    /// отбросит по root-guard).
+    ai_busy: Option<(PathBuf, Arc<AtomicBool>)>,
 }
 
 impl DraftState {
@@ -29,7 +38,14 @@ impl DraftState {
         let store = DraftStore::new(base);
         let manifest = store.load();
         let saved = manifest.clone();
-        Self { store, manifest, saved, failed_snapshot: None, status: None }
+        Self {
+            store,
+            manifest,
+            saved,
+            failed_snapshot: None,
+            status: None,
+            ai_busy: None,
+        }
     }
 
     /// Сохранить манифест, если он менялся с прошлой записи. Вызывается каждый
@@ -58,10 +74,29 @@ impl DraftState {
         &self.manifest
     }
 
-    pub fn draw(&mut self, ui: &mut egui::Ui) {
+    /// Идёт ли AI-подбор для этой папки (активность кнопки отмены).
+    pub fn ai_busy(&self, root: &Path) -> bool {
+        matches!(&self.ai_busy, Some((r, _)) if r == root)
+    }
+
+    /// AI-подбор для этой папки завершился (успех/ошибка/отмена).
+    pub fn on_ai_finished(&mut self, root: &Path) {
+        if self.ai_busy(root) {
+            self.ai_busy = None;
+        }
+    }
+
+    pub fn draw(
+        &mut self,
+        ui: &mut egui::Ui,
+        tx: &Sender<Command>,
+        root: Option<&Path>,
+        scan_ready: bool,
+        project_paths: &[String],
+    ) {
         ui.heading("Черновик запроса");
         ui.add_space(2.0);
-        self.draw_toolbar(ui);
+        self.draw_toolbar(ui, tx, root, scan_ready, project_paths);
         // Поле всегда редактируемо: чекбокс «Промпт» влияет только на то,
         // войдёт ли текст в копирование (как в старой версии).
         ui.add(
@@ -77,7 +112,14 @@ impl DraftState {
         }
     }
 
-    fn draw_toolbar(&mut self, ui: &mut egui::Ui) {
+    fn draw_toolbar(
+        &mut self,
+        ui: &mut egui::Ui,
+        tx: &Sender<Command>,
+        root: Option<&Path>,
+        scan_ready: bool,
+        project_paths: &[String],
+    ) {
         // Две строки: с padding (12,6) и шрифтом 14 все шесть элементов
         // в одну строку не влезают (кнопка «Скопировать картинки…»
         // обрезалась краем карточки).
@@ -98,7 +140,80 @@ impl DraftState {
             if ui.button("Скопировать картинки (файлы)").clicked() {
                 self.copy_images();
             }
+            ui.separator();
+            self.draw_ai_pick_button(ui, tx, root, scan_ready, project_paths);
         });
+    }
+
+    /// Кнопка AI-подбора: «✨ Подобрать файлы», во время работы — «✖ Отменить».
+    /// Disabled с подсказкой, если нет папки/скана/непустого промпта.
+    fn draw_ai_pick_button(
+        &mut self,
+        ui: &mut egui::Ui,
+        tx: &Sender<Command>,
+        root: Option<&Path>,
+        scan_ready: bool,
+        project_paths: &[String],
+    ) {
+        let busy = root.is_some_and(|r| self.ai_busy(r));
+        let (label, enabled, hint) = if busy {
+            ("✖ Отменить подбор", true, String::new())
+        } else {
+            let draft_empty = self.manifest.prompt.trim().is_empty();
+            let enabled = root.is_some() && scan_ready && !draft_empty;
+            let hint = if root.is_none() {
+                "Сначала выбери папку проекта".to_string()
+            } else if !scan_ready {
+                "Дождись окончания скана".to_string()
+            } else if draft_empty {
+                "Опиши задачу в поле промпта выше".to_string()
+            } else {
+                String::new()
+            };
+            ("✨ Подобрать файлы", enabled, hint)
+        };
+        let resp = ui
+            .add_enabled(enabled, egui::Button::new(label))
+            .on_disabled_hover_text(hint);
+        if resp.clicked() {
+            self.handle_pick_button(tx, root, busy, project_paths);
+        }
+    }
+
+    /// Старт/отмена AI-подбора. Отмена — прямой store(true) в cancel-флаг
+    /// (генерация его опрашивает); busy снимет событие AiPickFailed.
+    fn handle_pick_button(
+        &mut self,
+        tx: &Sender<Command>,
+        root: Option<&Path>,
+        busy: bool,
+        project_paths: &[String],
+    ) {
+        if busy {
+            if let Some((_, flag)) = &self.ai_busy {
+                flag.store(true, Ordering::Relaxed);
+                log::info!("черновик: AI-подбор — отмена запрошена");
+            }
+            return;
+        }
+        let Some(root) = root else { return }; // кнопка disabled без root — перестраховка
+        let cancel = Arc::new(AtomicBool::new(false));
+        match tx.send(Command::PickFiles {
+            root: root.to_path_buf(),
+            draft: self.manifest.prompt.clone(),
+            cancel: cancel.clone(),
+            project_paths: project_paths.to_vec(),
+        }) {
+            Ok(()) => {
+                log::info!("черновик: запрошен AI-подбор файлов");
+                self.ai_busy = Some((root.to_path_buf(), cancel));
+                self.status = Some("ИИ подбирает файлы…".to_string());
+            }
+            Err(e) => {
+                log::error!("команда AI-подбора не отправлена: {e}");
+                self.status = Some("AI-подбор не запустился (воркер мёртв?) — см. лог".to_string());
+            }
+        }
     }
 
     fn draw_attachments(&mut self, ui: &mut egui::Ui) {

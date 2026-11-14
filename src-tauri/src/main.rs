@@ -6,6 +6,14 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod ai_pick;
+mod ai_pick_prompt;
+mod ai_pick_snippets;
+mod ai_pick_tools;
+#[cfg(test)]
+mod ai_pick_scenarios;
+#[cfg(test)]
+mod ai_pick_smoke;
 mod clipboard;
 mod ui;
 mod worker;

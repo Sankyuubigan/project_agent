@@ -15,6 +15,14 @@ pub struct AppConfig {
     /// Последняя открытая папка проекта.
     #[serde(default)]
     pub last_project_dir: Option<String>,
+    /// Путь к GGUF-модели для AI-подбора файлов (PRP 13.11.26). None — первая
+    /// существующая модель из каталога движка (tauri-plugin-llama-engine).
+    #[serde(default)]
+    pub ai_model_path: Option<String>,
+    /// Путь к тул-бинарю agent-tools.exe для карты проекта. None — дефолт
+    /// (машина владельца, см. `tree::repomap::DEFAULT_TOOL`).
+    #[serde(default)]
+    pub repomap_tool: Option<String>,
 }
 
 /// Загрузить конфиг; файла нет — дефолт; битый — дефолт с громким логом
@@ -66,11 +74,23 @@ mod tests {
     #[test]
     fn save_load_roundtrip() {
         let dir = tempdir().unwrap();
-        let cfg = AppConfig { last_project_dir: Some("D:/tmp/proj".to_string()) };
+        let cfg = AppConfig { last_project_dir: Some("D:/tmp/proj".to_string()), ..Default::default() };
         save(dir.path(), &cfg).unwrap();
         assert_eq!(load(dir.path()), cfg);
         // tmp-файл после атомарной записи не остаётся.
         assert!(!dir.path().join("config.json.tmp").exists());
+    }
+
+    #[test]
+    fn ai_fields_survive_roundtrip() {
+        let dir = tempdir().unwrap();
+        let cfg = AppConfig {
+            last_project_dir: None,
+            ai_model_path: Some("D:/models/qwen.gguf".to_string()),
+            repomap_tool: Some("C:/tools/agent-tools.exe".to_string()),
+        };
+        save(dir.path(), &cfg).unwrap();
+        assert_eq!(load(dir.path()), cfg);
     }
 
     #[test]

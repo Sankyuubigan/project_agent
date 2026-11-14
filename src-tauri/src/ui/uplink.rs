@@ -58,6 +58,11 @@ impl UplinkState {
         self.root.as_deref()
     }
 
+    /// Скан завершён (активность кнопки AI-подбора в черновике).
+    pub fn scan_ready(&self) -> bool {
+        self.scan.is_some()
+    }
+
     /// Открыть папку: сброс стейта, запрос скана, сохранение в конфиг.
     pub fn open_root(&mut self, root: &Path, base: &Path, tx: &Sender<Command>) {
         self.root = Some(root.to_path_buf());
@@ -110,6 +115,86 @@ impl UplinkState {
                 self.tokens.remove(rel);
             }
         }
+    }
+
+    /// Событие воркера: промежуточный статус AI-подбора (в строку статуса).
+    pub fn on_ai_status(&mut self, root: &Path, msg: &str) {
+        if self.root.as_deref() != Some(root) {
+            return;
+        }
+        self.status = Some(msg.to_string());
+    }
+
+    /// Относительные пути selectable-файлов (Ok | ExcludedByDefault) — источник
+    /// истинности для тулов AI-подбора: find_files ищет по этому списку,
+    /// оркестратор отсекает галлюцинации модели. Скан не готов — пустой.
+    pub fn selectable_relative_paths(&self) -> Vec<String> {
+        match &self.scan {
+            Some(scan) => scan
+                .files
+                .iter()
+                .filter(|f| matches!(f.status, FileStatus::Ok | FileStatus::ExcludedByDefault))
+                .map(|f| f.rel_path.clone())
+                .collect(),
+            None => Vec::new(),
+        }
+    }
+
+    /// Событие воркера: AI-подбор не удался (текст уже в логе воркером).
+    pub fn on_ai_failed(&mut self, root: &Path, msg: &str) {
+        if self.root.as_deref() != Some(root) {
+            return;
+        }
+        self.status = Some(format!("⚠ {msg}"));
+    }
+
+    /// Событие воркера: AI-подбор готов. Ручные галочки НЕ снимаются —
+    /// только дополняются (требование 3 PRP); пути вне скана (галлюцинации
+    /// модели) — в лог, в выбор не попадают.
+    pub fn on_ai_picked(&mut self, root: &Path, selected: &[String], reasoning: &str) {
+        if self.root.as_deref() != Some(root) {
+            return;
+        }
+        // Своё множество валидных путей (заимствование scan живёт до конца
+        // чтения — дальше только мутация checked).
+        let selectable: HashSet<String> = match &self.scan {
+            Some(scan) => scan
+                .files
+                .iter()
+                .filter(|f| matches!(f.status, FileStatus::Ok | FileStatus::ExcludedByDefault))
+                .map(|f| f.rel_path.clone())
+                .collect(),
+            None => HashSet::new(),
+        };
+        let mut added = 0usize;
+        let mut skipped: Vec<String> = Vec::new();
+        for raw in selected {
+            let rel = normalize_ai_path(raw);
+            if rel.is_empty() {
+                continue;
+            }
+            if selectable.contains(&rel) {
+                if self.checked.insert(rel) {
+                    added += 1;
+                }
+            } else {
+                skipped.push(raw.clone());
+            }
+        }
+        log::info!(
+            "ai-pick: отмечено {} из {} предложенных (ручные не тронуты); вне скана: {:?}",
+            added,
+            selected.len(),
+            skipped
+        );
+        let n = selected.len();
+        self.status = Some(if n == 0 {
+            format!("ИИ не выбрал файлов: {}", truncate_for_status(reasoning, 160))
+        } else if added == 0 {
+            format!("ИИ подтвердил уже отмеченные ({n})")
+        } else {
+            format!("ИИ отметил {added} из {n}: {}", truncate_for_status(reasoning, 160))
+        });
     }
 
     pub fn draw(&mut self, ui: &mut egui::Ui, base: &Path, tx: &Sender<Command>) {
@@ -361,5 +446,46 @@ impl UplinkState {
                 self.status = Some(e);
             }
         }
+    }
+}
+
+/// Нормализовать предложенный ИИ путь: `\` → `/`, без ведущего `./`.
+fn normalize_ai_path(p: &str) -> String {
+    let p = p.trim().replace('\\', "/");
+    p.strip_prefix("./").unwrap_or(&p).to_string()
+}
+
+/// Reasoning для строки статуса: обрезка до `max_chars` символов
+/// (полный текст — в логе воркера).
+fn truncate_for_status(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        return s.to_string();
+    }
+    let mut t: String = s.chars().take(max_chars).collect();
+    t.push('…');
+    t
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_slashes_and_dot() {
+        assert_eq!(normalize_ai_path("src\\main.rs"), "src/main.rs");
+        assert_eq!(normalize_ai_path("./src/main.rs"), "src/main.rs");
+        assert_eq!(normalize_ai_path("  a/b.rs  "), "a/b.rs");
+        assert_eq!(normalize_ai_path(""), "");
+        // Абсолютные пути не чинятся в относительные — их отсеет скан-фильтр.
+        assert_eq!(normalize_ai_path("D:\\proj\\a.rs"), "D:/proj/a.rs");
+    }
+
+    #[test]
+    fn truncate_keeps_short_and_cuts_long() {
+        assert_eq!(truncate_for_status("короткий", 10), "короткий");
+        let long = "ж".repeat(200);
+        let cut = truncate_for_status(&long, 160);
+        assert_eq!(cut.chars().count(), 161); // 160 + многоточие
+        assert!(cut.ends_with('…'));
     }
 }

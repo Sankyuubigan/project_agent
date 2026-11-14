@@ -1,4 +1,7 @@
-//! Подсчёт токенов (tiktoken gpt2) с кэшем по ключу `(path, mtime, size)`.
+//! Подсчёт токенов (tiktoken o200k) с кэшем по ключу `(path, mtime, size)`.
+//!
+//! Энкодер o200k (GPT-4o-класс, PRP 13.11.26): прежний gpt2/r50k — энкодер
+//! 2020 года, заметно завышал счёт для современных моделей и чатов.
 //!
 //! Энкодер — глобальный `OnceLock` (инициализация ~сотни мс, делается один раз).
 //! Кэш — глобальный `Mutex<HashMap>`; повторный подсчёт неизменённого файла
@@ -30,14 +33,14 @@ pub fn spaced(n: usize) -> String {
     out
 }
 
-/// Энкодер gpt2: None, если инициализация не удалась (ошибка — в лог).
+/// Энкодер o200k: None, если инициализация не удалась (ошибка — в лог).
 fn encoder() -> Option<&'static CoreBPE> {
     static ENCODER: OnceLock<Option<CoreBPE>> = OnceLock::new();
     ENCODER
-        .get_or_init(|| match tiktoken_rs::r50k_base() {
+        .get_or_init(|| match tiktoken_rs::o200k_base() {
             Ok(bpe) => Some(bpe),
             Err(e) => {
-                log::error!("инициализация tiktoken gpt2 не удалась: {e}");
+                log::error!("инициализация tiktoken o200k не удалась: {e}");
                 None
             }
         })
