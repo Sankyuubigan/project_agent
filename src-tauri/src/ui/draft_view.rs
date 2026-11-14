@@ -14,7 +14,6 @@ use tauri_plugin_egui::egui;
 
 use agent_core::draft::{DraftAttachment, DraftManifest, DraftStore};
 
-use super::style;
 use crate::clipboard;
 use crate::worker::Command;
 
@@ -120,9 +119,11 @@ impl DraftState {
         scan_ready: bool,
         project_paths: &[String],
     ) {
-        // Две строки: с padding (12,6) и шрифтом 14 все шесть элементов
+        // Две строки: с padding (12,6) и шрифтом 14 пять элементов
         // в одну строку не влезают (кнопка «Скопировать картинки…»
-        // обрезалась краем карточки).
+        // обрезалась краем карточки). Кнопка «Скопировать текст» удалена:
+        // текст черновика копирует единая кнопка uplink «Собрать и
+        // скопировать» вместе с проект-частью.
         ui.horizontal(|ui| {
             ui.checkbox(&mut self.manifest.prompt_checked, "Промпт");
             ui.separator();
@@ -134,9 +135,6 @@ impl DraftState {
             }
         });
         ui.horizontal(|ui| {
-            if style::accent_button(ui, "Скопировать текст", true, style::BLUE, style::BLUE_HOVER) {
-                self.copy_text();
-            }
             if ui.button("Скопировать картинки (файлы)").clicked() {
                 self.copy_images();
             }
@@ -309,9 +307,10 @@ impl DraftState {
         };
     }
 
-    /// Текст копирования: промпт (если отмечен) + текстовые вложения
-    /// FILE-блоками формата v2 (путь в обоих тегах).
-    fn copy_text(&mut self) {
+    /// Текстовые части черновика для общей кнопки копирования (uplink):
+    /// промпт (если отмечен) + текстовые вложения FILE-блоками формата v2
+    /// (путь в обоих тегах). Ошибка чтения вложения — Err, не глотается.
+    pub(super) fn text_parts(&self) -> Result<Vec<String>, String> {
         let mut parts: Vec<String> = Vec::new();
         if self.manifest.prompt_checked && !self.manifest.prompt.trim().is_empty() {
             parts.push(self.manifest.prompt.clone());
@@ -321,36 +320,17 @@ impl DraftState {
                 continue;
             }
             let path = self.store.path_of(&att.file_name);
-            match std::fs::read_to_string(&path) {
-                Ok(content) => {
-                    parts.push(format!(
-                        "<<<FILE: {}>>>\n{}\n<<<END_FILE: {}>>>",
-                        att.file_name, content, att.file_name
-                    ));
-                }
-                Err(e) => {
-                    let msg = format!("вложение {}: не прочитано ({e})", att.file_name);
-                    log::error!("черновик: {msg}");
-                    self.status = Some(msg);
-                    return;
-                }
-            }
+            let content = std::fs::read_to_string(&path).map_err(|e| {
+                let msg = format!("вложение {}: не прочитано ({e})", att.file_name);
+                log::error!("черновик: {msg}");
+                msg
+            })?;
+            parts.push(format!(
+                "<<<FILE: {}>>>\n{}\n<<<END_FILE: {}>>>",
+                att.file_name, content, att.file_name
+            ));
         }
-        if parts.is_empty() {
-            self.status = Some("нечего копировать: отметь промпт или текстовые вложения".to_string());
-            return;
-        }
-        match clipboard::copy_text(&parts.join("\n\n")) {
-            Ok(()) => {
-                let total: usize = parts.iter().map(|p| p.len()).sum();
-                log::info!("черновик: текст скопирован ({total} символов)");
-                self.status = Some("текст черновика скопирован".to_string());
-            }
-            Err(e) => {
-                log::error!("черновик: {e}");
-                self.status = Some(e);
-            }
-        }
+        Ok(parts)
     }
 
     /// Картинки — CF_HDROP (список файлов как из Проводника): одно Ctrl+V

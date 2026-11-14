@@ -70,10 +70,13 @@ impl DownlinkState {
 
         ui.horizontal(|ui| {
             let root_ready = root.is_some();
+            // Пустое поле ответа (или из одних пробелов/переводов строк) —
+            // кнопка неактивна: клик по пустому даёт бессмысленный отчёт разбора.
+            let has_text = !self.response.trim().is_empty();
             if style::accent_button(
                 ui,
                 "Применить изменения",
-                root_ready,
+                root_ready && has_text,
                 style::GREEN,
                 style::GREEN_HOVER,
             ) {

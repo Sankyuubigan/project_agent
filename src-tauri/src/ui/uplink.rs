@@ -12,7 +12,9 @@ use agent_core::tree::scanner::{FileEntry, FileStatus, ScanOutput};
 use agent_core::tree::structure::{generate_all, generate_selected};
 use agent_core::tree::tokens::spaced;
 
+use super::draft_view::DraftState;
 use super::style;
+use super::uplink_text::{normalize_ai_path, truncate_for_status};
 use super::tree_widget::TreeData;
 use crate::clipboard;
 use crate::worker::Command;
@@ -33,6 +35,8 @@ pub struct UplinkState {
     instruction_checked: bool,
     instruction_text: Option<String>,
     instruction_error: Option<String>,
+    /// Выключен — отмеченные файлы не входят в промпт; галочки дерева не снимаются.
+    include_selected: bool,
     status: Option<String>,
 }
 
@@ -49,6 +53,7 @@ impl UplinkState {
             instruction_checked: true,
             instruction_text: None,
             instruction_error: None,
+            include_selected: true,
             status: None,
         }
     }
@@ -197,7 +202,13 @@ impl UplinkState {
         });
     }
 
-    pub fn draw(&mut self, ui: &mut egui::Ui, base: &Path, tx: &Sender<Command>) {
+    pub fn draw(
+        &mut self,
+        ui: &mut egui::Ui,
+        base: &Path,
+        tx: &Sender<Command>,
+        draft: &DraftState,
+    ) {
         ui.heading("Проект → чат");
         self.draw_root_row(ui, base, tx);
         ui.separator();
@@ -212,7 +223,7 @@ impl UplinkState {
             .show_inside(ui, |ui| {
                 ui.separator();
                 self.draw_options(ui, base);
-                self.draw_copy_row(ui, base);
+                self.draw_copy_row(ui, base, draft);
             });
 
         egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
@@ -313,6 +324,7 @@ impl UplinkState {
     }
 
     fn draw_options(&mut self, ui: &mut egui::Ui, base: &Path) {
+        ui.checkbox(&mut self.include_selected, "Включить выбранные файлы");
         ui.checkbox(&mut self.structure_checked, "Включить структуру");
         ui.add_enabled_ui(self.structure_checked, |ui| {
             ui.horizontal(|ui| {
@@ -360,7 +372,7 @@ impl UplinkState {
         }
     }
 
-    fn draw_copy_row(&mut self, ui: &mut egui::Ui, base: &Path) {
+    fn draw_copy_row(&mut self, ui: &mut egui::Ui, base: &Path, draft: &DraftState) {
         ui.add_space(4.0);
         ui.horizontal(|ui| {
             if style::accent_button(
@@ -370,7 +382,7 @@ impl UplinkState {
                 style::BLUE,
                 style::BLUE_HOVER,
             ) {
-                self.copy_prompt(base);
+                self.copy_prompt(base, draft);
             }
             if let Some(status) = &self.status {
                 ui.label(status);
@@ -378,9 +390,10 @@ impl UplinkState {
         });
     }
 
-    /// Собрать промпт (порядок — как в старой версии, формат блоков v2) и
-    /// скопировать в буфер.
-    fn copy_prompt(&mut self, base: &Path) {
+    /// Собрать промпт (проект-часть: инструкция → структура → файлы;
+    /// черновик-часть: текст по «Промпт» + вложения) и скопировать в буфер.
+    /// Единая кнопка копирования (заменила две раздельные).
+    fn copy_prompt(&mut self, base: &Path, draft: &DraftState) {
         let Some(root) = self.root.clone() else {
             self.status = Some("папка проекта не выбрана".to_string());
             return;
@@ -389,16 +402,16 @@ impl UplinkState {
             self.status = Some("проект ещё не отсканирован".to_string());
             return;
         };
-        let selected: Vec<FileEntry> = scan
-            .files
-            .iter()
-            .filter(|f| self.checked.contains(&f.rel_path))
-            .cloned()
-            .collect();
-        if selected.is_empty() {
-            self.status = Some("не отмечено ни одного файла".to_string());
-            return;
-        }
+        // Мастер-чекбокс выключен — файлы исключаются из копии, галочки дерева не трогаются.
+        let selected: Vec<FileEntry> = if self.include_selected {
+            scan.files
+                .iter()
+                .filter(|f| self.checked.contains(&f.rel_path))
+                .cloned()
+                .collect()
+        } else {
+            Vec::new()
+        };
 
         let structure = if self.structure_checked {
             if self.structure_all {
@@ -431,13 +444,49 @@ impl UplinkState {
             None
         };
 
-        let result = build_prompt(&root, &selected, structure, instruction);
-        for w in &result.warnings {
+        let project = build_prompt(&root, &selected, structure, instruction);
+        for w in &project.warnings {
             log::warn!("промпт: {w}");
         }
-        match clipboard::copy_text(&result.text) {
+        let draft_parts = match draft.text_parts() {
+            Ok(parts) => parts,
+            Err(e) => {
+                log::error!("копия: черновик: {e}");
+                self.status = Some(e);
+                return;
+            }
+        };
+        let draft_text = draft_parts.join("\n\n");
+        log::info!(
+            "копия: проект {} симв. (файлов {}/{}), черновик {} симв.",
+            project.text.len(),
+            project.file_count,
+            selected.len(),
+            draft_text.len()
+        );
+        let mut text = project.text;
+        if !draft_text.is_empty() {
+            if !text.trim().is_empty() {
+                text.push_str("\n\n");
+            }
+            text.push_str(&draft_text);
+        }
+        if text.trim().is_empty() {
+            let msg = "нечего копировать — нет ни одного включённого блока".to_string();
+            log::warn!("копия: {msg}");
+            self.status = Some(msg);
+            return;
+        }
+        match clipboard::copy_text(&text) {
             Ok(()) => {
-                let msg = format!("скопировано: {} файлов, {} символов", result.file_count, result.text.len());
+                let mut msg = format!(
+                    "скопировано: {} файлов, {} символов",
+                    project.file_count,
+                    text.len()
+                );
+                if self.include_selected && self.checked.is_empty() {
+                    msg.push_str("; файлы проекта: ни один не отмечен");
+                }
                 log::info!("промпт: {msg}");
                 self.status = Some(msg);
             }
@@ -449,43 +498,3 @@ impl UplinkState {
     }
 }
 
-/// Нормализовать предложенный ИИ путь: `\` → `/`, без ведущего `./`.
-fn normalize_ai_path(p: &str) -> String {
-    let p = p.trim().replace('\\', "/");
-    p.strip_prefix("./").unwrap_or(&p).to_string()
-}
-
-/// Reasoning для строки статуса: обрезка до `max_chars` символов
-/// (полный текст — в логе воркера).
-fn truncate_for_status(s: &str, max_chars: usize) -> String {
-    if s.chars().count() <= max_chars {
-        return s.to_string();
-    }
-    let mut t: String = s.chars().take(max_chars).collect();
-    t.push('…');
-    t
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn normalize_slashes_and_dot() {
-        assert_eq!(normalize_ai_path("src\\main.rs"), "src/main.rs");
-        assert_eq!(normalize_ai_path("./src/main.rs"), "src/main.rs");
-        assert_eq!(normalize_ai_path("  a/b.rs  "), "a/b.rs");
-        assert_eq!(normalize_ai_path(""), "");
-        // Абсолютные пути не чинятся в относительные — их отсеет скан-фильтр.
-        assert_eq!(normalize_ai_path("D:\\proj\\a.rs"), "D:/proj/a.rs");
-    }
-
-    #[test]
-    fn truncate_keeps_short_and_cuts_long() {
-        assert_eq!(truncate_for_status("короткий", 10), "короткий");
-        let long = "ж".repeat(200);
-        let cut = truncate_for_status(&long, 160);
-        assert_eq!(cut.chars().count(), 161); // 160 + многоточие
-        assert!(cut.ends_with('…'));
-    }
-}

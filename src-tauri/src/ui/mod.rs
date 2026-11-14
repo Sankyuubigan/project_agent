@@ -11,6 +11,7 @@ mod settings_view;
 mod style;
 mod tree_widget;
 mod uplink;
+mod uplink_text;
 
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
@@ -179,7 +180,7 @@ impl AppUi {
             .resizable(true)
             .show(ctx, |ui| {
                 style::card_frame(ui.ctx()).show(ui, |ui| {
-                    self.uplink.draw(ui, &self.paths.base, &self.cmd_tx);
+                    self.uplink.draw(ui, &self.paths.base, &self.cmd_tx, &self.draft);
                 });
             });
 
