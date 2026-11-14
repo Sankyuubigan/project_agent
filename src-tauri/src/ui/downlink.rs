@@ -59,13 +59,25 @@ impl DownlinkState {
             0.0
         };
         let edit_height = (ui.available_height() - 44.0 - report_space).max(80.0);
-        ui.add_sized(
-            [ui.available_width(), edit_height],
-            egui::TextEdit::multiline(&mut self.response)
-                .hint_text("Вставь ответ LLM с блоками <<<FILE: путь>>>…<<<END_FILE: путь>>>")
-                .font(egui::TextStyle::Monospace)
-                .margin(egui::Margin::same(8)),
-        );
+        // Поле в скролле с потолком edit_height: multiline TextEdit в egui растёт
+        // с контентом без ограничения (высота add_sized — только минимум), большой
+        // ответ раздувал панель и уводил кнопку «Применить изменения» за экран.
+        let response = egui::ScrollArea::vertical()
+            .id_salt("downlink_response_scroll")
+            .auto_shrink(false)
+            .max_height(edit_height)
+            .show(ui, |ui| {
+                ui.add_sized(
+                    [ui.available_width(), edit_height],
+                    egui::TextEdit::multiline(&mut self.response)
+                        .hint_text("Вставь ответ LLM с блоками <<<FILE: путь>>>…<<<END_FILE: путь>>>")
+                        .font(egui::TextStyle::Monospace)
+                        .margin(egui::Margin::same(8))
+                        .id_salt("downlink_response"),
+                )
+            })
+            .inner;
+        super::text_menu::attach(&response, &self.response);
         ui.add_space(4.0);
 
         ui.horizontal(|ui| {

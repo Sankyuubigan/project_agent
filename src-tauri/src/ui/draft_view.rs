@@ -98,13 +98,24 @@ impl DraftState {
         self.draw_toolbar(ui, tx, root, scan_ready, project_paths);
         // Поле всегда редактируемо: чекбокс «Промпт» влияет только на то,
         // войдёт ли текст в копирование (как в старой версии).
-        ui.add(
-            egui::TextEdit::multiline(&mut self.manifest.prompt)
-                .hint_text("Текст запроса к LLM…")
-                .desired_width(ui.available_width())
-                .desired_rows(6)
-                .margin(egui::Margin::same(8)),
-        );
+        // Поле в скролле с потолком: multiline TextEdit растёт с контентом без
+        // ограничения — длинный промпт раздувал поле и отодвигал список вложений.
+        let response = egui::ScrollArea::vertical()
+            .id_salt("draft_prompt_scroll")
+            .auto_shrink(false)
+            .max_height(160.0)
+            .show(ui, |ui| {
+                ui.add_sized(
+                    [ui.available_width(), 160.0],
+                    egui::TextEdit::multiline(&mut self.manifest.prompt)
+                        .hint_text("Текст запроса к LLM…")
+                        .desired_rows(6)
+                        .margin(egui::Margin::same(8))
+                        .id_salt("draft_prompt"),
+                )
+            })
+            .inner;
+        super::text_menu::attach(&response, &self.manifest.prompt);
         self.draw_attachments(ui);
         if let Some(status) = &self.status {
             ui.label(status);

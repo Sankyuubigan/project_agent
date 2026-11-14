@@ -13,6 +13,13 @@ pub fn copy_text(text: &str) -> Result<(), String> {
         .map_err(|e| format!("буфер обмена (текст): {e}"))
 }
 
+/// Прочитать текст из буфера обмена.
+pub fn read_text() -> Result<String, String> {
+    arboard::Clipboard::new()
+        .and_then(|mut c| c.get_text())
+        .map_err(|e| format!("буфер обмена (чтение): {e}"))
+}
+
 /// Скопировать список файлов как CF_HDROP.
 pub fn copy_file_list(paths: &[PathBuf]) -> Result<(), String> {
     if paths.is_empty() {

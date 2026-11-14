@@ -9,6 +9,7 @@ mod draft_view;
 mod logs_view;
 mod settings_view;
 mod style;
+mod text_menu;
 mod tree_widget;
 mod uplink;
 mod uplink_text;
