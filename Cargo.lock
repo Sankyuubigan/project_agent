@@ -4868,7 +4868,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "logs-core"
+name = "log-collector-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
@@ -5257,7 +5257,7 @@ dependencies = [
  "gpui-kit",
  "llama-engine-core",
  "log",
- "logs-core",
+ "log-collector-core",
 ]
 
 [[package]]
@@ -6485,6 +6485,59 @@ dependencies = [
  "quick-xml 0.42.0",
  "serde",
  "time",
+]
+
+[[package]]
+name = "plugin-downloader"
+version = "0.1.0"
+dependencies = [
+ "curl",
+ "futures-util",
+ "log",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "tokio",
+]
+
+[[package]]
+name = "plugin-llama-engine"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "json-store",
+ "llama-engine-core",
+ "log",
+ "minijinja",
+ "nvml-wrapper",
+ "plugin-downloader",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sysinfo 0.30.13",
+ "tauri",
+ "tauri-plugin",
+ "tokio",
+ "zip",
+]
+
+[[package]]
+name = "plugin-log-collector"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "log",
+ "log-collector-core",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 1.0.69",
+ "tokio",
 ]
 
 [[package]]
@@ -8734,21 +8787,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tauri-plugin-downloader"
-version = "0.1.0"
-dependencies = [
- "curl",
- "futures-util",
- "log",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tauri",
- "tauri-plugin",
- "tokio",
-]
-
-[[package]]
 name = "tauri-plugin-egui"
 version = "0.1.0"
 dependencies = [
@@ -8762,44 +8800,6 @@ dependencies = [
  "tauri-runtime",
  "tauri-runtime-wry",
  "wgpu 25.0.2",
-]
-
-[[package]]
-name = "tauri-plugin-llama-engine"
-version = "0.1.0"
-dependencies = [
- "futures-util",
- "json-store",
- "llama-engine-core",
- "log",
- "minijinja",
- "nvml-wrapper",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "sysinfo 0.30.13",
- "tauri",
- "tauri-plugin",
- "tauri-plugin-downloader",
- "tokio",
- "zip",
-]
-
-[[package]]
-name = "tauri-plugin-logs"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "log",
- "logs-core",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tauri",
- "tauri-plugin",
- "thiserror 1.0.69",
- "tokio",
 ]
 
 [[package]]
@@ -9685,6 +9685,8 @@ dependencies = [
  "clipboard-win",
  "log",
  "my-gpui-kit",
+ "plugin-llama-engine",
+ "plugin-log-collector",
  "png 0.17.16",
  "rfd",
  "serde",
@@ -9692,8 +9694,6 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-egui",
- "tauri-plugin-llama-engine",
- "tauri-plugin-logs",
  "tempfile",
 ]
 

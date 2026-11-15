@@ -4,7 +4,7 @@
 //! WeakEntity::update → перечитывает хвост и notify). Панель сама берёт путь
 //! лог-файла из logs-core (логгер плагина и кита — один statics, SSOT).
 //!
-//! Кнопки панели (паритет веб-компонентов tauri-plugin-logs): Копировать /
+//! Кнопки панели (паритет веб-компонентов plugin-log-collector): Копировать /
 //! Сохранить… / Очистить / Обновить — поведение внутри кита (arboard, экспорт
 //! в папку exe, трнкейт файла).
 
@@ -18,7 +18,7 @@ const LOG_TAIL_LINES: usize = 400;
 
 /// Свежий хвост лога для RootView (drain-цикл и кнопка «Обновить»).
 pub fn refresh_tail() -> String {
-    tauri_plugin_logs::logger::read_tail(LOG_TAIL_LINES)
+    plugin_log_collector::logger::read_tail(LOG_TAIL_LINES)
 }
 
 /// Содержимое вкладки «Логи»: панель логов кита в drain-режиме.

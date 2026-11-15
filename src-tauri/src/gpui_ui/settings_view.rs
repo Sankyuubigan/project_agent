@@ -25,7 +25,7 @@ use my_gpui_kit::{
     LlamaModelItem, LlamaSettingsCard, ParentElement as _, PathPromptOptions, SharedString,
     StatefulInteractiveElement as _, Styled as _, WeakEntity, Window, div, px,
 };
-use tauri_plugin_llama_engine::engine::config::EngineConfig;
+use plugin_llama_engine::engine::config::EngineConfig;
 
 use super::root_view::RootView;
 use crate::restart;
@@ -48,7 +48,7 @@ impl SettingsState {
     /// Перечитать конфиг плагина (модели могли поменяться извне).
     pub fn refresh_engine(&mut self) {
         log::info!("настройки: перечитываю конфиг плагина llama-engine");
-        self.engine = Some(tauri_plugin_llama_engine::engine::config::load_config_early());
+        self.engine = Some(plugin_llama_engine::engine::config::load_config_early());
     }
 
     /// Сохранить поле конфига: свежий read-modify-write с диска (паритет

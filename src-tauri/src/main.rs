@@ -30,13 +30,13 @@ use agent_core::config::{self, UiBackend};
 
 fn main() {
     // Краш-лог с первой миллисекунды (до инициализации Tauri).
-    tauri_plugin_logs::early_init("vibebridge.log");
-    tauri_plugin_logs::early_log("INFO", "VibeBridge: запуск (early, до Tauri)");
+    plugin_log_collector::early_init("vibebridge.log");
+    plugin_log_collector::early_log("INFO", "VibeBridge: запуск (early, до Tauri)");
 
     if let Err(e) = run() {
         let msg = format!("критическая ошибка запуска: {e:#}");
         log::error!("{msg}");
-        tauri_plugin_logs::early_log("ERROR", &msg);
+        plugin_log_collector::early_log("ERROR", &msg);
         std::process::exit(1);
     }
 }
@@ -50,7 +50,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .ok_or("не удалось определить папку exe (current_exe)")?;
     let cfg = config::load(&base);
     // Глобальный log:: ещё не установлен (это делает выбранная ветка) — ранний канал.
-    tauri_plugin_logs::early_log(
+    plugin_log_collector::early_log(
         "INFO",
         &format!("VibeBridge: движок интерфейса — {}", cfg.ui_backend),
     );
@@ -63,10 +63,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 /// Текущий фронтенд: окно Tauri + egui через вендоренный tauri-plugin-egui.
 fn run_egui(base: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     tauri::Builder::default()
-        .plugin(tauri_plugin_logs::init())
+        .plugin(plugin_log_collector::init())
         .setup(move |app| {
             // Облачная отправка ошибок отключена на уровне хоста (правило).
-            tauri_plugin_logs::set_reporting_enabled(false);
+            plugin_log_collector::set_reporting_enabled(false);
             log::info!("VibeBridge: инициализация окна на egui (без WebView)");
 
             // Рендер-плагин egui: подписывается на цикл событий wry.

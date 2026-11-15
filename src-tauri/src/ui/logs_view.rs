@@ -1,4 +1,4 @@
-//! Вкладка «Логи»: хвост файла лога (tauri-plugin-logs — единственная точка
+//! Вкладка «Логи»: хвост файла лога (plugin-log-collector — единственная точка
 //! записи) + путь к файлу. Без WebView логи читаются напрямую из Rust.
 
 use tauri_plugin_egui::egui;
@@ -19,9 +19,9 @@ impl LogView {
 
     pub fn draw(&mut self, ctx: &egui::Context) {
         // Хвост лога читаем на каждый кадр вкладки (файл маленький, кадры редкие).
-        self.tail = tauri_plugin_logs::logger::read_tail(LOG_TAIL_LINES);
+        self.tail = plugin_log_collector::logger::read_tail(LOG_TAIL_LINES);
         if self.path.is_empty() {
-            self.path = tauri_plugin_logs::logger::log_file_path()
+            self.path = plugin_log_collector::logger::log_file_path()
                 .map(|p| p.display().to_string())
                 .unwrap_or_default();
             self.path_missing = self.path.is_empty();

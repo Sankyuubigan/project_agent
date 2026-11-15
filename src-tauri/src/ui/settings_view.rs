@@ -6,7 +6,7 @@
 use std::path::Path;
 
 use tauri_plugin_egui::egui;
-use tauri_plugin_llama_engine::engine::config::{load_config_early, EngineConfig};
+use plugin_llama_engine::engine::config::{load_config_early, EngineConfig};
 
 use agent_core::config::{self, UiBackend};
 use agent_core::tree::repomap::DEFAULT_TOOL;

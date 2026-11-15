@@ -22,10 +22,10 @@ use std::time::{Duration, Instant};
 use agent_core::config;
 use agent_core::tree::repomap;
 use serde_json::json;
-use tauri_plugin_llama_engine::engine::config::{load_config_early, EngineConfig, ModelParams};
-use tauri_plugin_llama_engine::engine::llamacpp_installer;
-use tauri_plugin_llama_engine::engine::llm::LlamaEngine;
-use tauri_plugin_llama_engine::engine::llm_types::{
+use plugin_llama_engine::engine::config::{load_config_early, EngineConfig, ModelParams};
+use plugin_llama_engine::engine::llamacpp_installer;
+use plugin_llama_engine::engine::llm::LlamaEngine;
+use plugin_llama_engine::engine::llm_types::{
     GenerationResult, GrammarSpec, LlmMessage, ToolCall,
 };
 

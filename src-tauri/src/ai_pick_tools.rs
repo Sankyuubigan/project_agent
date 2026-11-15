@@ -15,7 +15,7 @@ use std::path::Path;
 
 use agent_core::tree::repomap;
 use serde_json::{json, Value};
-use tauri_plugin_llama_engine::engine::llm_types::{FunctionDef, ToolCall, ToolDefinition};
+use plugin_llama_engine::engine::llm_types::{FunctionDef, ToolCall, ToolDefinition};
 
 /// Максимум путей в ответе find_files (остальное — «… ещё N»).
 pub const MAX_FIND_RESULTS: usize = 40;

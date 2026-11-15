@@ -2,7 +2,7 @@
 //!
 //! Запускается из `main.rs` при `ui_backend = "gpui"`: нативное окно gpui-kit,
 //! Tauri НЕ инициализируется (WebView2 не создаётся). Бизнес-логика общая с
-//! egui-веткой: `agent-core` + `worker.rs`; логи — `tauri-plugin-logs`
+//! egui-веткой: `agent-core` + `worker.rs`; логи — `plugin-log-collector`
 //! (standalone-установка, без AppHandle).
 
 mod downlink_state;
@@ -27,9 +27,9 @@ use crate::worker::{Command, Event};
 /// Точка входа GPUI-ветки: блокирует поток до закрытия окна.
 pub fn run(base: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     // Облачная отправка отключена на уровне хоста (паритет с egui-веткой).
-    tauri_plugin_logs::set_reporting_enabled(false);
+    plugin_log_collector::set_reporting_enabled(false);
     // Без Tauri глобальный log:: не ставится — standalone-установка единого логгера.
-    tauri_plugin_logs::install_standalone(true, None);
+    plugin_log_collector::install_standalone(true, None);
     log::info!("VibeBridge: запуск GPUI-фронтенда (Tauri не инициализируется)");
 
     // Воркер (скан/токены/AI-подбор) — общий с egui-веткой (crate::worker).

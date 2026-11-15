@@ -15,10 +15,10 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use serde_json::json;
-use tauri_plugin_llama_engine::engine::config::{load_config_early, ModelParams};
-use tauri_plugin_llama_engine::engine::llamacpp_installer;
-use tauri_plugin_llama_engine::engine::llm::LlamaEngine;
-use tauri_plugin_llama_engine::engine::llm_types::{FunctionDef, LlmMessage, ToolDefinition};
+use plugin_llama_engine::engine::config::{load_config_early, ModelParams};
+use plugin_llama_engine::engine::llamacpp_installer;
+use plugin_llama_engine::engine::llm::LlamaEngine;
+use plugin_llama_engine::engine::llm_types::{FunctionDef, LlmMessage, ToolDefinition};
 
 /// Модель по умолчанию (выбор владельца 14.11.26).
 const DEFAULT_TEST_MODEL: &str = "D:\\nn\\models\\llm\\uncen\\gemma-4-12B\\gemma-4-12B-it-qat-q4_0-unquantized-heretic-ja-v2.i1-IQ4_NL.gguf";
@@ -49,7 +49,7 @@ fn find_files_tool() -> ToolDefinition {
 /// assistant-сообщение с вызовом тула в OpenAI-форме (форма из теста плагина
 /// `does_not_merge_assistant_with_tool_calls`; роль/контент пусты — движок
 /// рендерит `<|tool_call>` по чат-шаблону).
-fn assistant_tool_msg(call: &tauri_plugin_llama_engine::engine::llm_types::ToolCall) -> LlmMessage {
+fn assistant_tool_msg(call: &plugin_llama_engine::engine::llm_types::ToolCall) -> LlmMessage {
     LlmMessage::default()
         .with_tool_calls(vec![json!({
             "id": call.id,

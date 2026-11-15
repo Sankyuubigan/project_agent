@@ -10,7 +10,7 @@
 use std::collections::HashSet;
 
 use agent_core::tree::tokens;
-use tauri_plugin_llama_engine::engine::llm_types::LlmMessage;
+use plugin_llama_engine::engine::llm_types::LlmMessage;
 
 /// Потолок суммы токенов Фазы 1 (n_ctx 8192 − резерв Фазы 2 1024).
 /// При достижении — переход в Фазу 2.
@@ -200,7 +200,7 @@ pub fn parse_answer(text: &str) -> Result<PickAnswer, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tauri_plugin_llama_engine::engine::llm_types::ToolCall;
+    use plugin_llama_engine::engine::llm_types::ToolCall;
 
     fn tool_msg(content: &str) -> LlmMessage {
         LlmMessage::default().as_tool_result("t1".to_string(), content)
