@@ -46,6 +46,9 @@ pub fn run(base: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         .run(move |cx| {
             init(cx);
             open_window(my_gpui_kit::window_options(), cx, |window, cx| {
+                // Диагностический замер драг-цикла (Шаг 0 спеца): без env
+                // VIBEBRIDGE_DRAG_PROBE=1 не делает ничего.
+                my_gpui_kit::drag_probe::install(window);
                 cx.new(|cx| root_view::RootView::new(base, cmd_tx, event_rx, window, cx))
             })
             .expect("failed to open window");

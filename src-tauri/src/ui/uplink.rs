@@ -7,7 +7,7 @@ use std::sync::mpsc::Sender;
 
 use tauri_plugin_egui::egui;
 
-use agent_core::tree::prompt::{build_prompt, find_instruction_path, load_instruction};
+use agent_core::tree::prompt::{build_prompt, CHANGES_FILE, PLAN_FILE, InstructionSlot};
 use agent_core::tree::scanner::{FileEntry, FileStatus, ScanOutput};
 use agent_core::tree::structure::{generate_all, generate_selected};
 use agent_core::tree::tokens::spaced;
@@ -19,8 +19,7 @@ use super::tree_widget::TreeData;
 use crate::clipboard;
 use crate::worker::Command;
 
-/// Файл инструкции метода (внешний md рядом с exe, требование владельца).
-const METHOD_FILE: &str = "markdown_method.md";
+mod options;
 
 /// Состояние Uplink-части главной вкладки.
 pub struct UplinkState {
@@ -32,9 +31,10 @@ pub struct UplinkState {
     structure_checked: bool,
     /// true — структура по всем файлам, false — только по отмеченным.
     structure_all: bool,
-    instruction_checked: bool,
-    instruction_text: Option<String>,
-    instruction_error: Option<String>,
+    /// Слот инструкции выдачи изменений (внешний md рядом с exe).
+    changes: InstructionSlot,
+    /// Слот инструкции режима плана (выключен по умолчанию — режим ситуативный).
+    plan: InstructionSlot,
     /// Выключен — отмеченные файлы не входят в промпт; галочки дерева не снимаются.
     include_selected: bool,
     status: Option<String>,
@@ -50,9 +50,8 @@ impl UplinkState {
             tokens: HashMap::new(),
             structure_checked: true,
             structure_all: false,
-            instruction_checked: true,
-            instruction_text: None,
-            instruction_error: None,
+            changes: InstructionSlot::new(true),
+            plan: InstructionSlot::new(false),
             include_selected: true,
             status: None,
         }
@@ -323,55 +322,6 @@ impl UplinkState {
         ui.label(text);
     }
 
-    fn draw_options(&mut self, ui: &mut egui::Ui, base: &Path) {
-        ui.checkbox(&mut self.include_selected, "Включить выбранные файлы");
-        ui.checkbox(&mut self.structure_checked, "Включить структуру");
-        ui.add_enabled_ui(self.structure_checked, |ui| {
-            ui.horizontal(|ui| {
-                ui.weak("по:");
-                ui.radio_value(&mut self.structure_all, false, "отмеченным");
-                ui.radio_value(&mut self.structure_all, true, "всем файлам");
-            });
-        });
-
-        let before = self.instruction_checked;
-        ui.checkbox(&mut self.instruction_checked, "Включить инструкцию метода");
-        if self.instruction_checked && !before {
-            self.refresh_instruction(base);
-        }
-        if self.instruction_checked {
-            match &self.instruction_error {
-                Some(err) => {
-                    ui.label(egui::RichText::new(err).color(egui::Color32::LIGHT_RED));
-                }
-                None => {
-                    if let Some(text) = &self.instruction_text {
-                        ui.weak(format!("инструкция: {} символов", text.len()));
-                    }
-                }
-            }
-        }
-    }
-
-    /// (Пере)читать инструкцию метода с диска; ошибка — видима, не молчит.
-    fn refresh_instruction(&mut self, base: &Path) {
-        let result = find_instruction_path(base, METHOD_FILE)
-            .ok_or_else(|| format!("doc/{METHOD_FILE} не найден рядом с exe (и выше по папкам)"))
-            .and_then(|p| load_instruction(&p).map(|text| (text, p)));
-        match result {
-            Ok((text, path)) => {
-                log::info!("инструкция метода: {}", path.display());
-                self.instruction_text = Some(text);
-                self.instruction_error = None;
-            }
-            Err(e) => {
-                log::warn!("инструкция метода: {e}");
-                self.instruction_text = None;
-                self.instruction_error = Some(e);
-            }
-        }
-    }
-
     fn draw_copy_row(&mut self, ui: &mut egui::Ui, base: &Path, draft: &DraftState) {
         ui.add_space(4.0);
         ui.horizontal(|ui| {
@@ -394,57 +344,71 @@ impl UplinkState {
     /// черновик-часть: текст по «Промпт» + вложения) и скопировать в буфер.
     /// Единая кнопка копирования (заменила две раздельные).
     fn copy_prompt(&mut self, base: &Path, draft: &DraftState) {
-        let Some(root) = self.root.clone() else {
-            self.status = Some("папка проекта не выбрана".to_string());
-            return;
-        };
-        let Some(scan) = &self.scan else {
-            self.status = Some("проект ещё не отсканирован".to_string());
-            return;
-        };
+        // Инструкции и черновик копируются и без отсканированной папки: без скана
+        // невозможна только проект-часть (структура/файлы) — это не ошибка.
         // Мастер-чекбокс выключен — файлы исключаются из копии, галочки дерева не трогаются.
-        let selected: Vec<FileEntry> = if self.include_selected {
-            scan.files
+        let selected: Vec<FileEntry> = match (self.root.as_ref(), self.scan.as_ref()) {
+            (Some(_), Some(scan)) if self.include_selected => scan
+                .files
                 .iter()
                 .filter(|f| self.checked.contains(&f.rel_path))
                 .cloned()
-                .collect()
-        } else {
-            Vec::new()
+                .collect(),
+            _ => Vec::new(),
         };
 
         let structure = if self.structure_checked {
-            if self.structure_all {
-                generate_all(&root)
-            } else {
-                let rels: Vec<String> = self.checked.iter().cloned().collect();
-                let root_name = root
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_default();
-                generate_selected(&root_name, &rels)
-            }
+            self.root.as_ref().and_then(|root| {
+                if self.structure_all {
+                    generate_all(root)
+                } else {
+                    let rels: Vec<String> = self.checked.iter().cloned().collect();
+                    let root_name = root
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    generate_selected(&root_name, &rels)
+                }
+            })
         } else {
             None
         };
 
-        let instruction = if self.instruction_checked {
-            if self.instruction_text.is_none() {
-                self.refresh_instruction(base);
+        // Инструкции в порядке UI: выдача изменений, затем режим плана.
+        let mut instructions: Vec<String> = Vec::new();
+        for (slot, file, label) in [
+            (&mut self.changes, CHANGES_FILE, "изменений"),
+            (&mut self.plan, PLAN_FILE, "плана"),
+        ] {
+            if !slot.checked {
+                continue;
             }
-            match self.instruction_text.clone() {
-                Some(text) => Some(text),
+            if slot.text().is_none() {
+                slot.refresh(base, file);
+            }
+            match slot.text().map(str::to_string) {
+                Some(text) => instructions.push(text),
                 None => {
                     self.status =
-                        Some("инструкция не прочитана (см. ошибку выше)".to_string());
+                        Some(format!("инструкция {label} не прочитана (см. ошибку выше)"));
                     return;
                 }
             }
-        } else {
-            None
-        };
+        }
 
-        let project = build_prompt(&root, &selected, structure, instruction);
+        if self.scan.is_none() {
+            log::warn!(
+                "копия: папка не отсканирована — проект-часть (структура/файлы) не включена"
+            );
+        }
+        // Пустая заглушка root безопасна: при пустом selected чтений файлов нет.
+        let empty_root = PathBuf::new();
+        let project = build_prompt(
+            self.root.as_deref().unwrap_or(&empty_root),
+            &selected,
+            structure,
+            &instructions,
+        );
         for w in &project.warnings {
             log::warn!("промпт: {w}");
         }
@@ -486,6 +450,9 @@ impl UplinkState {
                 );
                 if self.include_selected && self.checked.is_empty() {
                     msg.push_str("; файлы проекта: ни один не отмечен");
+                }
+                if self.scan.is_none() {
+                    msg.push_str("; проект-часть пропущена (папка не отсканирована)");
                 }
                 log::info!("промпт: {msg}");
                 self.status = Some(msg);

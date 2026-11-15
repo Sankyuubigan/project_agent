@@ -8,12 +8,14 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use agent_core::tree::prompt::{CHANGES_FILE, PLAN_FILE};
+
 use my_gpui_kit::component::checkbox::Checkbox;
 use my_gpui_kit::component::list::ListItem;
 use my_gpui_kit::component::radio::RadioGroup;
 use my_gpui_kit::component::resizable::{h_resizable, v_resizable};
 use my_gpui_kit::component::tree::tree;
-use my_gpui_kit::component::{ActiveTheme, button::{Button, ButtonVariants}, h_flex};
+use my_gpui_kit::component::{ActiveTheme, button::{Button, ButtonVariants}, h_flex, v_flex};
 use my_gpui_kit::{
     AnyElement, App, AppCard, Context, ElementId, IntoElement, ParentElement as _,
     PathPromptOptions, SharedString, Styled as _, WeakEntity, div, px,
@@ -143,7 +145,7 @@ fn uplink_card(
         .text_color(cx.theme().muted_foreground)
         .child(SharedString::from(total));
 
-    // — опции промпта
+    // — опции промпта (вертикально; группа от «Включить структуру» — в рамке)
     let opt_include = Checkbox::new("opt_include_selected")
         .label("Включить выбранные файлы")
         .checked(root.main.uplink.include_selected)
@@ -168,25 +170,51 @@ fn uplink_card(
             cx.notify();
         }));
 
-    let instruction_hint = root.main.uplink.instruction_hint();
-    let opt_instruction = Checkbox::new("opt_instruction")
-        .label("Включить инструкцию метода")
-        .checked(root.main.uplink.instruction_checked)
+    // Слот инструкции: чекбокс + строка-хинт (ошибка красным / счётчик символов).
+    let changes_hint = if root.main.uplink.changes.checked {
+        root.main.uplink.changes.hint("инструкция изменений")
+    } else {
+        None
+    };
+    let opt_changes = Checkbox::new("opt_changes")
+        .label("Включить инструкцию выдачи изменений")
+        .checked(root.main.uplink.changes.checked)
         .on_click(cx.listener(|root, checked: &bool, _, cx| {
-            let was = root.main.uplink.instruction_checked;
-            root.main.uplink.instruction_checked = *checked;
+            let was = root.main.uplink.changes.checked;
+            root.main.uplink.changes.checked = *checked;
             if *checked && !was {
-                root.main.uplink.refresh_instruction(&root.base);
+                root.main.uplink.changes.refresh(&root.base, CHANGES_FILE);
             }
             cx.notify();
         }));
-    let instruction_line = instruction_hint
-        .map(|(text, is_error)| {
+
+    let plan_hint = if root.main.uplink.plan.checked {
+        root.main.uplink.plan.hint("инструкция плана")
+    } else {
+        None
+    };
+    let opt_plan = Checkbox::new("opt_plan")
+        .label("Включить инструкцию режима плана")
+        .checked(root.main.uplink.plan.checked)
+        .on_click(cx.listener(|root, checked: &bool, _, cx| {
+            let was = root.main.uplink.plan.checked;
+            root.main.uplink.plan.checked = *checked;
+            if *checked && !was {
+                root.main.uplink.plan.refresh(&root.base, PLAN_FILE);
+            }
+            cx.notify();
+        }));
+
+    let hint_line = |hint: Option<(String, bool)>| {
+        hint.map(|(text, is_error)| {
             div()
                 .text_color(if is_error { cx.theme().danger } else { cx.theme().muted_foreground })
                 .child(SharedString::from(text))
         })
-        .map(|el| el.into_any_element());
+        .map(|el| el.into_any_element())
+    };
+    let changes_line = hint_line(changes_hint);
+    let plan_line = hint_line(plan_hint);
 
     // — дерево файлов (кастомные строки: чекбокс + имя + статус + токены)
     let tree_el = tree(&root.main.tree_state, move |ix, entry, _selected, _window, cx: &mut App| {
@@ -348,18 +376,25 @@ fn uplink_card(
         // Опции и «Собрать и скопировать» — ПОД деревом (паритет egui
         // uplink.rs:221: bottom-панель = separator → options → copy row).
         .child(div().h(px(1.0)).w_full().bg(cx.theme().border))
-        // Опции в одну строку (план спеца №5: gap_2 + items_center; перенос
-        // на узком окне — flex_wrap). «Собрать и скопировать» — ниже, отдельной строкой.
+        // Опции вертикально: «Включить выбранные файлы» — вне рамки; группа
+        // от «Включить структуру» (радио + обе инструкции) — в рамке.
+        // Рамка — hairline-div по гайдам кита (вложенная карточка запрещена),
+        // радиус меньше внешней карточки (6px).
         .child(
-            h_flex()
-                .gap_2()
-                .items_center()
-                .flex_wrap()
-                .child(opt_include)
-                .child(opt_structure)
-                .child(structure_radio)
-                .child(opt_instruction)
-                .children(instruction_line),
+            v_flex().gap_2().child(opt_include).child(
+                v_flex()
+                    .gap_2()
+                    .p_2()
+                    .border_1()
+                    .border_color(cx.theme().border)
+                    .rounded(px(4.0))
+                    .child(opt_structure)
+                    .child(structure_radio)
+                    .child(opt_changes)
+                    .children(changes_line)
+                    .child(opt_plan)
+                    .children(plan_line),
+            ),
         )
         .child(h_flex().gap_2().items_center().child(copy).children(status_line))
         .into_any_element()

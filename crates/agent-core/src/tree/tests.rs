@@ -5,7 +5,9 @@ use std::path::Path;
 
 use tempfile::tempdir;
 
-use super::prompt::{build_prompt, instruction_path, load_instruction};
+use super::prompt::{
+    build_prompt, instruction_path, load_instruction, CHANGES_FILE, PLAN_FILE, InstructionSlot,
+};
 use super::scanner::{fnmatch, file_status, scan, FileStatus};
 use super::structure::generate_selected;
 
@@ -138,7 +140,7 @@ fn prompt_order_instruction_structure_files() {
         root.path(),
         &selected,
         Some("СТРУКТУРА".to_string()),
-        Some("ИНСТРУКЦИЯ".to_string()),
+        &["ИНСТРУКЦИЯ".to_string()],
     );
 
     let expected = "ИНСТРУКЦИЯ\n\n---\n\nСТРУКТУРА\n\n---\nСодержимое выбранных файлов:\n---\n\n\
@@ -154,7 +156,7 @@ fn prompt_without_optional_parts() {
     let root = tempdir().unwrap();
     fs::write(root.path().join("a.txt"), "AAA\n").unwrap();
     let selected = vec![entry("a.txt", FileStatus::Ok)];
-    let result = build_prompt(root.path(), &selected, None, None);
+    let result = build_prompt(root.path(), &selected, None, &[]);
     assert_eq!(result.text, "<<<FILE: a.txt>>>\nAAA\n\n<<<END_FILE: a.txt>>>");
     assert_eq!(result.file_count, 1);
 }
@@ -164,7 +166,7 @@ fn prompt_warns_on_unreadable_file() {
     let root = tempdir().unwrap();
     // Файла нет: read_to_string упадёт → warning, не паника.
     let selected = vec![entry("ghost.txt", FileStatus::Ok)];
-    let result = build_prompt(root.path(), &selected, None, None);
+    let result = build_prompt(root.path(), &selected, None, &[]);
     assert_eq!(result.file_count, 0);
     assert!(result.warnings.iter().any(|w| w.contains("ghost.txt")));
 }
@@ -178,8 +180,53 @@ fn instruction_missing_file_is_error() {
 
 #[test]
 fn instruction_path_from_exe_dir() {
-    let p = instruction_path(Path::new("C:/app"), "markdown_method.md");
-    assert_eq!(p, Path::new("C:/app/doc/markdown_method.md"));
+    assert_eq!(
+        instruction_path(Path::new("C:/app"), CHANGES_FILE),
+        Path::new("C:/app/doc/markdown_changes.md")
+    );
+    assert_eq!(
+        instruction_path(Path::new("C:/app"), PLAN_FILE),
+        Path::new("C:/app/doc/markdown_plan.md")
+    );
+}
+
+#[test]
+fn prompt_two_instructions_separated() {
+    let root = tempdir().unwrap();
+    let result = build_prompt(
+        root.path(),
+        &[],
+        None,
+        &["ПЕРВАЯ".to_string(), "ВТОРАЯ".to_string()],
+    );
+    // Разделитель между инструкциями тот же, что и после одиночной раньше:
+    // пара «инструкция + разделитель» пушится целиком, trim съедает только
+    // пробелы — хвостовые «---» остаются (поведение старой версии).
+    assert_eq!(result.text, "ПЕРВАЯ\n\n---\n\nВТОРАЯ\n\n---");
+}
+
+#[test]
+fn instruction_slot_missing_file_is_visible_error() {
+    let root = tempdir().unwrap();
+    let mut slot = InstructionSlot::new(true);
+    slot.refresh(root.path(), "nope.md");
+    assert!(slot.text().is_none());
+    let (hint, is_error) = slot.hint("инструкция").expect("ошибка видима в хинте");
+    assert!(is_error);
+    assert!(hint.contains("не найден"), "{hint}");
+}
+
+#[test]
+fn instruction_slot_loads_doc_file() {
+    let root = tempdir().unwrap();
+    fs::create_dir_all(root.path().join("doc")).unwrap();
+    fs::write(root.path().join("doc/x.md"), "ТЕКСТ").unwrap();
+    let mut slot = InstructionSlot::new(false);
+    slot.refresh(root.path(), "x.md");
+    assert_eq!(slot.text(), Some("ТЕКСТ"));
+    let (hint, is_error) = slot.hint("инструкция").expect("хинт размера");
+    assert!(!is_error);
+    assert!(hint.contains("символов"), "{hint}");
 }
 
 // ---------------------------------------------------------------- токены

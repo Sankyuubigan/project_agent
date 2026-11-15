@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 
-use agent_core::tree::prompt::{build_prompt, find_instruction_path, load_instruction};
+use agent_core::tree::prompt::{build_prompt, CHANGES_FILE, PLAN_FILE, InstructionSlot};
 use agent_core::tree::scanner::{FileEntry, FileStatus, ScanOutput};
 use agent_core::tree::structure::{generate_all, generate_selected};
 use agent_core::tree::tokens::spaced;
@@ -16,9 +16,6 @@ use super::draft_state::DraftState;
 use crate::clipboard;
 use crate::ui::uplink_text::{normalize_ai_path, truncate_for_status};
 use crate::worker::Command;
-
-/// Файл инструкции метода (внешний md рядом с exe, требование владельца).
-const METHOD_FILE: &str = "markdown_method.md";
 
 /// Состояние uplink-части главной вкладки GPUI.
 pub struct UplinkState {
@@ -33,9 +30,10 @@ pub struct UplinkState {
     pub structure_checked: bool,
     /// true — структура по всем файлам, false — только по отмеченным.
     pub structure_all: bool,
-    pub instruction_checked: bool,
-    instruction_text: Option<String>,
-    instruction_error: Option<String>,
+    /// Слот инструкции выдачи изменений (внешний md рядом с exe).
+    pub changes: InstructionSlot,
+    /// Слот инструкции режима плана (выключен по умолчанию — режим ситуативный).
+    pub plan: InstructionSlot,
     /// Выключен — отмеченные файлы не входят в промпт; галочки дерева не снимаются.
     pub include_selected: bool,
     status: Option<String>,
@@ -51,9 +49,8 @@ impl UplinkState {
             tokens: HashMap::new(),
             structure_checked: true,
             structure_all: false,
-            instruction_checked: true,
-            instruction_text: None,
-            instruction_error: None,
+            changes: InstructionSlot::new(true),
+            plan: InstructionSlot::new(false),
             include_selected: true,
             status: None,
         }
@@ -298,40 +295,6 @@ impl UplinkState {
         text
     }
 
-    /// Подсказка под чекбоксом инструкции: ошибка красным или счётчик символов.
-    pub fn instruction_hint(&self) -> Option<(String, bool)> {
-        if !self.instruction_checked {
-            return None;
-        }
-        match &self.instruction_error {
-            Some(err) => Some((err.clone(), true)),
-            None => self
-                .instruction_text
-                .as_ref()
-                .map(|t| (format!("инструкция: {} символов", t.len()), false)),
-        }
-    }
-
-    /// Включили чекбокс инструкции — (пере)читать файл с диска. Ошибка видима,
-    /// не молчит (паритет с egui refresh_instruction).
-    pub fn refresh_instruction(&mut self, base: &Path) {
-        let result = find_instruction_path(base, METHOD_FILE)
-            .ok_or_else(|| format!("doc/{METHOD_FILE} не найден рядом с exe (и выше по папкам)"))
-            .and_then(|p| load_instruction(&p).map(|text| (text, p)));
-        match result {
-            Ok((text, path)) => {
-                log::info!("инструкция метода: {}", path.display());
-                self.instruction_text = Some(text);
-                self.instruction_error = None;
-            }
-            Err(e) => {
-                log::warn!("инструкция метода: {e}");
-                self.instruction_text = None;
-                self.instruction_error = Some(e);
-            }
-        }
-    }
-
     fn is_selectable(&self, rel: &str) -> bool {
         match &self.scan {
             Some(scan) => scan
@@ -346,56 +309,71 @@ impl UplinkState {
     /// черновик-часть: текст по «Промпт» + вложения) и скопировать в буфер.
     /// Единая кнопка копирования (паритет с egui copy_prompt).
     pub fn copy_prompt(&mut self, base: &Path, draft: &DraftState) {
-        let Some(root) = self.root.clone() else {
-            self.status = Some("папка проекта не выбрана".to_string());
-            return;
-        };
-        let Some(scan) = &self.scan else {
-            self.status = Some("проект ещё не отсканирован".to_string());
-            return;
-        };
+        // Инструкции и черновик копируются и без отсканированной папки: без скана
+        // невозможна только проект-часть (структура/файлы) — это не ошибка.
         // Мастер-чекбокс выключен — файлы исключаются из копии, галочки дерева не трогаются.
-        let selected: Vec<FileEntry> = if self.include_selected {
-            scan.files
+        let selected: Vec<FileEntry> = match (self.root.as_ref(), self.scan.as_ref()) {
+            (Some(_), Some(scan)) if self.include_selected => scan
+                .files
                 .iter()
                 .filter(|f| self.checked.contains(&f.rel_path))
                 .cloned()
-                .collect()
-        } else {
-            Vec::new()
+                .collect(),
+            _ => Vec::new(),
         };
 
         let structure = if self.structure_checked {
-            if self.structure_all {
-                generate_all(&root)
-            } else {
-                let rels: Vec<String> = self.checked.iter().cloned().collect();
-                let root_name = root
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_default();
-                generate_selected(&root_name, &rels)
-            }
+            self.root.as_ref().and_then(|root| {
+                if self.structure_all {
+                    generate_all(root)
+                } else {
+                    let rels: Vec<String> = self.checked.iter().cloned().collect();
+                    let root_name = root
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    generate_selected(&root_name, &rels)
+                }
+            })
         } else {
             None
         };
 
-        let instruction = if self.instruction_checked {
-            if self.instruction_text.is_none() {
-                self.refresh_instruction(base);
+        // Инструкции в порядке UI: выдача изменений, затем режим плана.
+        let mut instructions: Vec<String> = Vec::new();
+        for (slot, file, label) in [
+            (&mut self.changes, CHANGES_FILE, "изменений"),
+            (&mut self.plan, PLAN_FILE, "плана"),
+        ] {
+            if !slot.checked {
+                continue;
             }
-            match self.instruction_text.clone() {
-                Some(text) => Some(text),
+            if slot.text().is_none() {
+                slot.refresh(base, file);
+            }
+            match slot.text().map(str::to_string) {
+                Some(text) => instructions.push(text),
                 None => {
-                    self.status = Some("инструкция не прочитана (см. ошибку выше)".to_string());
+                    self.status =
+                        Some(format!("инструкция {label} не прочитана (см. ошибку выше)"));
                     return;
                 }
             }
-        } else {
-            None
-        };
+        }
 
-        let project = build_prompt(&root, &selected, structure, instruction);
+        if self.scan.is_none() {
+            log::warn!(
+                "копия: папка не отсканирована — проект-часть (структура/файлы) не включена"
+            );
+        }
+        // Пустая заглушка root безопасна: при пустом selected чтений файлов нет.
+        let empty_root = PathBuf::new();
+        let project = build_prompt(
+            self.root.as_deref().unwrap_or(&empty_root),
+            &selected,
+            structure,
+            &instructions,
+        );
         for w in &project.warnings {
             log::warn!("промпт: {w}");
         }
@@ -438,6 +416,9 @@ impl UplinkState {
                 if self.include_selected && self.checked.is_empty() {
                     msg.push_str("; файлы проекта: ни один не отмечен");
                 }
+                if self.scan.is_none() {
+                    msg.push_str("; проект-часть пропущена (папка не отсканирована)");
+                }
                 log::info!("промпт: {msg}");
                 self.status = Some(msg);
             }
@@ -450,81 +431,4 @@ impl UplinkState {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use agent_core::tree::scanner::FileEntry;
-
-    fn scan() -> ScanOutput {
-        ScanOutput {
-            dirs: Vec::new(),
-            files: vec![
-                FileEntry { rel_path: "a.rs".into(), size: 10, status: FileStatus::Ok },
-                FileEntry { rel_path: "dir/b.rs".into(), size: 10, status: FileStatus::Ok },
-                FileEntry { rel_path: "dir/c.bin".into(), size: 10, status: FileStatus::Binary },
-                FileEntry {
-                    rel_path: "big.py".into(),
-                    size: 10,
-                    status: FileStatus::ExcludedByDefault,
-                },
-            ],
-        }
-    }
-
-    fn state_with_scan() -> (UplinkState, PathBuf) {
-        let mut st = UplinkState::new();
-        let root = PathBuf::from("D:/tmp/proj");
-        st.root = Some(root.clone());
-        st.on_scanned(&root, scan());
-        (st, root)
-    }
-
-    #[test]
-    fn initial_checked_ok_and_excluded() {
-        let (st, _) = state_with_scan();
-        // Ok и ExcludedByDefault отмечены; бинарный — нет.
-        assert!(st.checked.contains("a.rs"));
-        assert!(st.checked.contains("big.py"));
-        assert!(!st.checked.contains("dir/c.bin"));
-    }
-
-    #[test]
-    fn stale_scan_ignored() {
-        let mut st = UplinkState::new();
-        st.root = Some(PathBuf::from("D:/tmp/other"));
-        st.on_scanned(&PathBuf::from("D:/tmp/proj"), scan());
-        assert!(st.scan.is_none());
-        assert!(st.checked.is_empty());
-    }
-
-    #[test]
-    fn ai_pick_adds_without_unchecking_and_skips_ghosts() {
-        let (mut st, root) = state_with_scan();
-        // Ручные снятия: a.rs (ИИ не должен вернуть) и dir/b.rs (должен
-        // вернуть — иначе добавления не будет: скан отмечает всё сразу).
-        st.checked.remove("a.rs");
-        st.checked.remove("dir/b.rs");
-        st.on_ai_picked(
-            &root,
-            &["dir\\b.rs".to_string(), "ghost.rs".to_string()],
-            "reasoning",
-        );
-        // dir/b.rs нормализовалась и вернулась (added 1 из 2); a.rs осталась
-        // снятой (ИИ не трогает ручные); ghost.rs вне скана — пропущена.
-        assert!(st.checked.contains("dir/b.rs"));
-        assert!(!st.checked.contains("a.rs"));
-        assert!(st.status.as_deref().unwrap_or("").contains("ИИ отметил 1 из 2"));
-    }
-
-    #[test]
-    fn dir_cascade_and_totals() {
-        let (mut st, _) = state_with_scan();
-        st.set_dir_checked("dir/", true);
-        assert!(st.checked.contains("dir/b.rs"));
-        assert!(!st.checked.contains("dir/c.bin")); // бинарный не трогаем
-        st.set_dir_checked("dir/", false);
-        assert!(!st.checked.contains("dir/b.rs"));
-        st.set_file_checked("dir/c.bin", true);
-        assert!(!st.checked.contains("dir/c.bin")); // не-selectable
-        assert!(st.total_tokens_text().starts_with("Выделено токенов:"));
-    }
-}
+mod tests;
