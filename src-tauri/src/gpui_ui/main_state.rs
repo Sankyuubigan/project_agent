@@ -7,9 +7,9 @@
 use std::path::Path;
 use std::sync::mpsc::{Receiver, Sender};
 
-use gpui_kit::component::input::TextareaState;
-use gpui_kit::component::tree::{TreeItem, TreeState};
-use gpui_kit::{AppContext as _, Context, Entity, Window};
+use my_gpui_kit::component::input::TextareaState;
+use my_gpui_kit::component::tree::{TreeItem, TreeState};
+use my_gpui_kit::{AppContext as _, Context, Entity, Window};
 
 use super::downlink_state::DownlinkState;
 use super::draft_state::DraftState;

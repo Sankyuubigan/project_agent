@@ -1,23 +1,29 @@
 //! Вкладка «Настройки» GPUI-фронтенда: паритет egui `ui/settings_view.rs` —
-//! 4 карточки: «Движок интерфейса», «Плагин llama-engine», «Модель для
-//! AI-подбора», «Карта проекта (тул codemap)». Конфиг — read-modify-write
-//! через `agent_core::config`; рестарт — `crate::restart`; диалоги выбора
-//! файлов — асинхронный `prompt_for_paths` (блокирующий rfd в listener'е
-//! запрещён — урок краша 15.11.26), результат — по oneshot в WeakEntity.
+//! карточки: «Движок интерфейса», «Плагин llama-engine», модель AI-подбора
+//! ([`LlamaSettingsCard`] кита + отдельная карточка ручного GGUF), «Карта
+//! проекта (тул codemap)». Карточки — [`AppCard`] кита. Конфиг —
+//! read-modify-write через `agent_core::config`; рестарт-кнопка —
+//! `crate::restart`; диалоги выбора файлов — асинхронный `prompt_for_paths`
+//! (блокирующий rfd в listener'е запрещён — урок краша 15.11.26), результат —
+//! по oneshot в WeakEntity.
+//!
+//! Модель-часть: entity Select создаётся хелпером кита `make_model_select`,
+//! выбор доставляется подпиской `wire_model_select` (RootView), синхронизация
+//! списка («↻ Перечитать», «Сбросить») — build/selected-хелперы кита.
 
 use std::path::Path;
 
 use agent_core::config::{self, AppConfig, UiBackend};
 use agent_core::tree::repomap::DEFAULT_TOOL;
-use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::radio::RadioGroup;
-use gpui_kit::component::searchable_list::SearchableListItem;
-use gpui_kit::component::select::{Select, SelectState};
-use gpui_kit::component::{ActiveTheme, IndexPath, h_flex};
-use gpui_kit::{
-    AnyElement, AppContext as _, Context, Div, Entity, InteractiveElement as _, IntoElement,
-    ParentElement as _, PathPromptOptions, SharedString, StatefulInteractiveElement as _,
-    Styled as _, WeakEntity, Window, div, px,
+use my_gpui_kit::component::button::{Button, ButtonVariants};
+use my_gpui_kit::component::radio::RadioGroup;
+use my_gpui_kit::component::select::SelectState;
+use my_gpui_kit::component::{ActiveTheme, h_flex};
+use my_gpui_kit::llama_settings::{build_model_items, make_model_select, selected_model_index};
+use my_gpui_kit::{
+    AnyElement, AppCard, Context, Div, Entity, InteractiveElement as _, IntoElement,
+    LlamaModelItem, LlamaSettingsCard, ParentElement as _, PathPromptOptions, SharedString,
+    StatefulInteractiveElement as _, Styled as _, WeakEntity, Window, div, px,
 };
 use tauri_plugin_llama_engine::engine::config::EngineConfig;
 
@@ -30,8 +36,8 @@ pub struct SettingsState {
     pub cfg: AppConfig,
     pub engine: Option<EngineConfig>,
     /// Entity создаётся при старте окна (нужен Window — init_select);
-    /// выбор модели приходит событием Confirm (подписка в RootView::new).
-    pub select: Option<Entity<SelectState<Vec<ModelItem>>>>,
+    /// выбор модели приходит событием Confirm (подписка in RootView::new).
+    pub select: Option<Entity<SelectState<Vec<LlamaModelItem>>>>,
 }
 
 impl SettingsState {
@@ -57,21 +63,24 @@ impl SettingsState {
     }
 
     /// Создать entity Select для списка моделей (RootView::new; SelectState::new
-    /// требует Window).
+    /// требует Window) — хелпер кита: build_model_items + selected_model_index.
     pub fn init_select(&mut self, window: &mut Window, cx: &mut Context<RootView>) {
         if self.select.is_some() {
             return;
         }
-        let items = build_model_items(&self.engine);
-        let selected = selected_model_index(&items, self.cfg.ai_model_path.as_deref());
-        self.select = Some(cx.new(|cx| SelectState::new(items, selected, window, cx)));
+        self.select = Some(make_model_select(
+            self.engine.as_ref(),
+            self.cfg.ai_model_path.as_deref(),
+            window,
+            cx,
+        ));
     }
 
     /// Синхронизировать Select с текущим списком моделей/конфигом
-    /// («↻ Перечитать», «Сбросить»).
+    /// («↻ Перечитать», «Сбросить»): set_items + set_selected_index.
     pub fn sync_select(&mut self, window: &mut Window, cx: &mut Context<RootView>) {
         let Some(select) = &self.select else { return };
-        let items = build_model_items(&self.engine);
+        let items = build_model_items(self.engine.as_ref());
         let selected = selected_model_index(&items, self.cfg.ai_model_path.as_deref());
         select.update(cx, |s, cx| {
             s.set_items(items, window, cx);
@@ -119,19 +128,9 @@ fn pick_file(
     .detach();
 }
 
-/// Рамка карточки (паритет egui style::card_frame): заголовок + контент.
-fn card(title: &str, cx: &Context<RootView>) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .p_3()
-        // Карточка — слой СВЕТЛЕЕ фона окна (план спеца №1).
-        .bg(cx.theme().secondary)
-        .border_1()
-        .border_color(cx.theme().border)
-        .rounded(px(6.0))
-        .child(div().child(SharedString::from(title.to_string())))
+/// Рамка карточки кита: заголовок + контент (цвета/борд — внутри AppCard).
+fn card(title: &str) -> AppCard {
+    AppCard::new().title(title)
 }
 
 /// Строка «ключ: значение» (паритет egui kv_row): ключ приглушённый,
@@ -154,71 +153,6 @@ fn kv_row(cx: &Context<RootView>, key: &str, value: &str) -> Div {
         )
 }
 
-/// Имя файла из пути (для списка моделей) — паритет egui file_label.
-pub fn file_label(path: &str) -> String {
-    Path::new(path)
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| path.to_string())
-}
-
-/// Элемент выпадающего списка моделей: value — путь модели (пустая строка =
-/// «Первая доступная», ai_model_path = None).
-#[derive(Clone)]
-pub struct ModelItem {
-    label: String,
-    path: String,
-    missing: bool,
-}
-
-impl SearchableListItem for ModelItem {
-    type Value = String;
-
-    fn title(&self) -> SharedString {
-        SharedString::from(self.label.clone())
-    }
-
-    fn value(&self) -> &String {
-        &self.path
-    }
-
-    /// Отсутствующий на диске GGUF — серым, применить нельзя (паритет egui:
-    /// «файл не найден → warn, не сохранять»).
-    fn disabled(&self) -> bool {
-        self.missing
-    }
-}
-
-/// Список элементов Select: [0] «Первая доступная», далее модели плагина
-/// (отсутствующие на диске — disabled с меткой, паритет egui-меток).
-fn build_model_items(engine: &Option<EngineConfig>) -> Vec<ModelItem> {
-    let mut items = vec![ModelItem {
-        label: "Первая доступная".into(),
-        path: String::new(),
-        missing: false,
-    }];
-    if let Some(engine) = engine {
-        for m in &engine.models {
-            let (label, missing) = if Path::new(m).is_file() {
-                (file_label(m), false)
-            } else {
-                (format!("{} — файл не найден", file_label(m)), true)
-            };
-            items.push(ModelItem { label, path: m.clone(), missing });
-        }
-    }
-    items
-}
-
-/// IndexPath выбранного элемента Select (None в конфиге → «Первая доступная»).
-fn selected_model_index(items: &[ModelItem], current: Option<&str>) -> Option<IndexPath> {
-    let ix = match current {
-        None => 0,
-        Some(p) => items.iter().position(|i| i.path == p).unwrap_or(0),
-    };
-    Some(IndexPath::default().row(ix))
-}
-
 /// Содержимое вкладки: карточки в скролл-колонке (паритет egui draw). Контент
 /// не растягивается на всю ширину широких окон (план спеца №3, max 920).
 pub fn render(root: &mut RootView, cx: &mut Context<RootView>) -> AnyElement {
@@ -234,17 +168,18 @@ pub fn render(root: &mut RootView, cx: &mut Context<RootView>) -> AnyElement {
         .child(backend_card(root, cx))
         .child(engine_card(root, cx))
         .child(model_card(root, cx))
+        .child(manual_model_card(root, cx))
         .child(repomap_card(root, cx))
         .into_any_element()
 }
 
 /// Карточка «Движок интерфейса»: радио egui/GPUI + сохранение и рестарт.
-fn backend_card(root: &mut RootView, cx: &Context<RootView>) -> Div {
+fn backend_card(root: &mut RootView, cx: &Context<RootView>) -> AppCard {
     let selected = match root.backend_selection {
         UiBackend::Egui => 0,
         UiBackend::Gpui => 1,
     };
-    card("Движок интерфейса", cx)
+    card("Движок интерфейса")
         .child(
             // ID доменный: единственный переключатель движка в GPUI.
             RadioGroup::horizontal("ui_backend_radio")
@@ -282,8 +217,8 @@ fn backend_card(root: &mut RootView, cx: &Context<RootView>) -> Div {
 }
 
 /// Карточка «Плагин llama-engine»: параметры движка + счётчик моделей.
-fn engine_card(root: &mut RootView, cx: &Context<RootView>) -> Div {
-    let mut card = card("Плагин llama-engine (движок локальных моделей)", cx);
+fn engine_card(root: &mut RootView, cx: &Context<RootView>) -> AppCard {
+    let mut card = card("Плагин llama-engine (движок локальных моделей)");
     match root.settings.engine.as_ref() {
         None => {
             card = card.child(
@@ -346,28 +281,35 @@ fn engine_card(root: &mut RootView, cx: &Context<RootView>) -> Div {
     card
 }
 
-/// Карточка «Модель для AI-подбора»: компактный выпадающий список моделей
-/// (Select из gpui-kit — паритет egui ComboBox) + ручной GGUF + сброс.
-fn model_card(root: &mut RootView, cx: &mut Context<RootView>) -> Div {
-    let mut card = card("Модель для AI-подбора файлов", cx);
+/// Модель-часть вкладки: [`LlamaSettingsCard`] кита (Select моделей + note)
+/// как САМОСТОЯТЕЛЬНЫЙ элемент (AppCard в AppCard не вкладываем).
+fn model_card(root: &mut RootView, cx: &Context<RootView>) -> AnyElement {
     if root.settings.engine.is_none() {
-        return card.child(
-            div()
-                .text_color(cx.theme().muted_foreground)
-                .child("— конфиг плагина не прочитан —"),
-        );
+        return card("Модель для AI-подбора файлов")
+            .child(
+                div()
+                    .text_color(cx.theme().muted_foreground)
+                    .child("— конфиг плагина не прочитан —"),
+            )
+            .into_any_element();
     }
-
-    // Выпадающий список моделей: выбор доставляется событием Confirm
-    // (подписка в RootView::new) — persist делает она.
-    if let Some(select) = root.settings.select.as_ref() {
-        card = card.child(
-            Select::new(select)
-                .id("ai_model_select")
-                .menu_width(px(420.0)),
-        );
+    match root.settings.select.clone() {
+        Some(select) => LlamaSettingsCard::new(select)
+            .note("Используется кнопкой «✨ Подобрать файлы» в черновике; остальное (params) — из конфига плагина.")
+            .into_any_element(),
+        None => card("Модель для AI-подбора файлов")
+            .child(
+                div()
+                    .text_color(cx.theme().muted_foreground)
+                    .child("— список моделей не готов —"),
+            )
+            .into_any_element(),
     }
+}
 
+/// Карточка «Модель вручную»: ручной GGUF + сброс + текущий путь (kv_row).
+fn manual_model_card(root: &mut RootView, cx: &Context<RootView>) -> AppCard {
+    let mut card = card("Модель вручную");
     let mut row = h_flex().gap_2().child(
         Button::new("model_pick_gguf").label("Другой GGUF…").on_click(
             cx.listener(|_root: &mut RootView, _, _, cx| {
@@ -388,28 +330,23 @@ fn model_card(root: &mut RootView, cx: &mut Context<RootView>) -> Div {
                 }),
             ),
         );
-        let current = root.settings.cfg.ai_model_path.clone().unwrap_or_default();
+    }
+    card = card.child(row);
+    if let Some(current) = root.settings.cfg.ai_model_path.clone() {
         card = card.child(kv_row(cx, "Текущий ai_model_path:", &current));
     }
-    card = card
-        .child(row)
-        .child(
-            div()
-                .text_color(cx.theme().muted_foreground)
-                .child("Используется кнопкой «✨ Подобрать файлы» в черновике; остальное (params) — из конфига плагина."),
-        );
     card
 }
 
 /// Карточка «Карта проекта (тул codemap)»: путь тул-бинаря + выбор/сброс.
-fn repomap_card(root: &mut RootView, cx: &mut Context<RootView>) -> Div {
+fn repomap_card(root: &mut RootView, cx: &Context<RootView>) -> AppCard {
     let tool = root
         .settings
         .cfg
         .repomap_tool
         .clone()
         .unwrap_or_else(|| DEFAULT_TOOL.to_string());
-    let mut card = card("Карта проекта (тул codemap)", cx)
+    let mut card = card("Карта проекта (тул codemap)")
         .child(kv_row(cx, "Тул-бинарь:", &tool));
     if !Path::new(&tool).is_file() {
         card = card.child(
@@ -421,7 +358,7 @@ fn repomap_card(root: &mut RootView, cx: &mut Context<RootView>) -> Div {
     let mut row = h_flex().gap_2().child(
         Button::new("repomap_pick_exe").label("Выбрать exe…").on_click(
             cx.listener(|_root: &mut RootView, _, _, cx| {
-                pick_file(cx, "выбор тул-бинаря", |root, path| {
+                pick_file(cx, "repomap_pick_exe", |root, path| {
                     log::info!("настройки: тул-бинарь карты проекта: {path}");
                     root.settings.persist(&root.base, |cfg| cfg.repomap_tool = Some(path));
                 });
@@ -443,52 +380,4 @@ fn repomap_card(root: &mut RootView, cx: &mut Context<RootView>) -> Div {
             .text_color(cx.theme().muted_foreground)
             .child("agent-tools.exe codemap map --no-cache --tokens 2048 — скелет проекта для модели."),
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// build_items: [0] — «Первая доступная» с пустым value (ai_model_path=None).
-    #[test]
-    fn model_items_first_entry_is_always_available() {
-        let items = build_model_items(&None);
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0].label, "Первая доступная");
-        assert_eq!(items[0].path, "");
-        assert!(!items[0].missing);
-    }
-
-    /// Модель без файла на диске — disabled с меткой (паритет egui).
-    #[test]
-    fn model_items_marks_missing_files() {
-        let engine = Some(EngineConfig {
-            models: vec![r"D:\точно\нет\missing.gguf".to_string()],
-            ..Default::default()
-        });
-        let items = build_model_items(&engine);
-        assert_eq!(items.len(), 2);
-        assert!(items[1].missing);
-        assert!(items[1].disabled());
-        assert!(items[1].label.contains("файл не найден"));
-        assert_eq!(items[1].path, r"D:\точно\нет\missing.gguf");
-    }
-
-    /// IndexPath выбранного: None → 0 («Первая доступная»), Some → позиция
-    /// модели; неизвестный путь — фолбэк «Первая доступная».
-    #[test]
-    fn selected_index_maps_config_to_row() {
-        let items = vec![
-            ModelItem {
-                label: "Первая доступная".into(),
-                path: String::new(),
-                missing: false,
-            },
-            ModelItem { label: "a.gguf".into(), path: "D:/a.gguf".into(), missing: false },
-        ];
-        let row = |ix: Option<IndexPath>| ix.map(|p| p.row);
-        assert_eq!(row(selected_model_index(&items, None)), Some(0));
-        assert_eq!(row(selected_model_index(&items, Some("D:/a.gguf"))), Some(1));
-        assert_eq!(row(selected_model_index(&items, Some("X:/b.gguf"))), Some(0));
-    }
 }

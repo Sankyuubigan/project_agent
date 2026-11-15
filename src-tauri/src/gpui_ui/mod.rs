@@ -13,7 +13,6 @@ mod main_view;
 mod root_view;
 mod settings_view;
 mod side_cards;
-mod theme;
 mod tree_items;
 mod uplink_state;
 
@@ -21,7 +20,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender};
 
 // AppContext — трейт, дающий cx.new() для &mut App (создание корневой Entity).
-use gpui_kit::{AppContext as _, application, init, open_window};
+use my_gpui_kit::{AppContext as _, application, init, open_window};
 
 use crate::worker::{Command, Event};
 
@@ -43,16 +42,12 @@ pub fn run(base: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     // системная белая полоса отключена (appears_transparent), drag — на нашей
     // верхней панели (план спеца №4, одна полоса).
     application()
-        .with_assets(gpui_kit::assets::Assets)
+        .with_assets(my_gpui_kit::assets::Assets)
         .run(move |cx| {
             init(cx);
-            open_window(
-                gpui_kit::component::TitleBar::window_options(),
-                cx,
-                |window, cx| {
-                    cx.new(|cx| root_view::RootView::new(base, cmd_tx, event_rx, window, cx))
-                },
-            )
+            open_window(my_gpui_kit::window_options(), cx, |window, cx| {
+                cx.new(|cx| root_view::RootView::new(base, cmd_tx, event_rx, window, cx))
+            })
             .expect("failed to open window");
         });
     log::info!("VibeBridge: GPUI-окно закрыто");

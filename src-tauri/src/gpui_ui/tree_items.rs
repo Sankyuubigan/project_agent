@@ -11,8 +11,8 @@ use std::collections::{HashMap, HashSet};
 
 use agent_core::tree::scanner::{FileStatus, ScanOutput};
 use agent_core::tree::tokens::{spaced, MAX_TOKENS_FOR_DISPLAY};
-use gpui_kit::component::tree::TreeItem;
-use gpui_kit::SharedString;
+use my_gpui_kit::component::tree::TreeItem;
+use my_gpui_kit::SharedString;
 
 /// Данные одной строки дерева (папка или файл) для render-closure.
 #[derive(Clone, Debug)]

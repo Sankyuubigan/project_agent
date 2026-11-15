@@ -6,12 +6,12 @@
 
 use std::path::Path;
 
-use gpui_kit::component::checkbox::Checkbox;
-use gpui_kit::component::input::Textarea;
-use gpui_kit::component::{ActiveTheme, Disableable, h_flex, button::{Button, ButtonVariants}};
-use gpui_kit::{
-    AnyElement, Context, InteractiveElement as _, IntoElement, ParentElement as _, PathPromptOptions,
-    SharedString, StatefulInteractiveElement as _, Styled as _, div, px,
+use my_gpui_kit::component::checkbox::Checkbox;
+use my_gpui_kit::component::input::Textarea;
+use my_gpui_kit::component::{ActiveTheme, Disableable, h_flex, button::{Button, ButtonVariants}};
+use my_gpui_kit::{
+    AnyElement, AppCard, Context, InteractiveElement as _, IntoElement, ParentElement as _,
+    PathPromptOptions, SharedString, StatefulInteractiveElement as _, Styled as _, div, px,
 };
 
 use super::downlink_state::{DownlinkState, Report};
@@ -194,22 +194,12 @@ pub fn downlink_card(root: &mut RootView, cx: &mut Context<RootView>) -> AnyElem
             .into_any_element()
     });
 
-    // — карточка
-    div()
-        .id("downlink_card")
-        .flex()
-        .flex_col()
+    // — карточка кита (bg/border/rounded/p_3 внутри; растяжение — refine).
+    AppCard::new()
+        .title("Чат → проект")
         .flex_1()
         .min_h(px(0.0))
-        .gap_2()
-        .p_3()
-        // Карточка — слой СВЕТЛЕЕ фона окна (план спеца №1).
-        .bg(cx.theme().secondary)
-        .border_1()
-        .border_color(cx.theme().border)
-        .rounded(px(6.0))
         .overflow_hidden()
-        .child(div().child(SharedString::from("Чат → проект")))
         .child(
             div()
                 .flex()
@@ -347,22 +337,12 @@ pub fn draft_card(root: &mut RootView, cx: &mut Context<RootView>) -> AnyElement
         .overflow_y_scroll()
         .children(att_rows);
 
-    // — карточка
-    div()
-        .id("draft_card")
-        .flex()
-        .flex_col()
+    // — карточка кита (bg/border/rounded/p_3 внутри; растяжение — refine).
+    AppCard::new()
+        .title("Черновик запроса")
         .flex_1()
         .min_h(px(0.0))
-        .gap_2()
-        .p_3()
-        // Карточка — слой СВЕТЛЕЕ фона окна (план спеца №1).
-        .bg(cx.theme().secondary)
-        .border_1()
-        .border_color(cx.theme().border)
-        .rounded(px(6.0))
         .overflow_hidden()
-        .child(div().child(SharedString::from("Черновик запроса")))
         .child(
             div()
                 .flex()

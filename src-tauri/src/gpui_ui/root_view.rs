@@ -1,10 +1,12 @@
-//! Корневой view GPUI-окна (PRP 14.11.26 шаги 2–3): шапка с заголовком и
-//! переключателем темы ☀/🌙, TabBar вкладок «Главная/Логи/Настройки» и
-//! содержимое активной вкладки. Вкладки — render-функции соседних модулей.
+//! Корневой view GPUI-окна (PRP 14.11.26 шаги 2–3, миграция на кит 15.11.26):
+//! каркас — [`AppShell`] кита (вкладки/тема/кнопки окна/drag, урок WCA::Drag
+//! внутри), содержимое активной вкладки — render-функции соседних модулей.
+//! Тема — [`setup_theme`] кита (SSOT палитры; gpui_ui/theme.rs удалён).
 //!
 //! RootView владеет MainState («Главная») и подписками (`_subscriptions`,
 //! правило скилла gpui-kit): InputEvent::Change двух textarea («Черновик
-//! запроса», «Чат → проект») и вечная drain-задача событий воркера
+//! запроса», «Чат → проект»), TreeEvent раскрытия папок, SelectEvent модели
+//! (через wire_model_select кита) и вечная drain-задача событий воркера
 //! (`cx.spawn` + таймер, detach).
 
 use std::path::{Path, PathBuf};
@@ -12,18 +14,16 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
 use agent_core::config;
-use gpui_kit::component::input::InputEvent;
-use gpui_kit::component::select::SelectEvent;
-use gpui_kit::component::tree::TreeEvent;
-use gpui_kit::component::{ActiveTheme, button::{Button, ButtonVariants}, h_flex};
-use gpui_kit::{
-    Context, Div, InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
-    Styled as _, Window, WindowControlArea, div, px,
+use my_gpui_kit::component::input::InputEvent;
+use my_gpui_kit::component::tree::TreeEvent;
+use my_gpui_kit::component::ActiveTheme;
+use my_gpui_kit::llama_settings::wire_model_select;
+use my_gpui_kit::{
+    AppShell, AppTab, Context, IntoElement, ParentElement as _, Render, ThemeMode, Window,
+    setup_theme,
 };
-
 use super::main_state::MainState;
-use super::settings_view::{ModelItem, file_label};
-use super::{logs_view, main_view, settings_view, theme};
+use super::{logs_view, main_view, settings_view};
 use crate::worker::{Command, Event};
 
 /// Вкладки верхней панели. Соответствие индексам TabBar — единый источник.
@@ -47,14 +47,12 @@ pub struct RootView {
     pub backend_selection: config::UiBackend,
     /// Стейт «Главной»: uplink/черновик/downlink + entity'и Tree/textarea.
     pub main: MainState,
-    /// Хвост vibebridge.log для вкладки «Логи» (последние 400 строк).
+    /// Хвост vibebridge.log для вкладки «Логи» (последние 400 строк, drain).
     pub logs_tail: String,
-    /// Путь лог-файла (лениво, при первом открытии вкладки «Логи»).
-    pub logs_path: Option<std::path::PathBuf>,
     /// Стейт настроек (конфиг приложения + конфиг плагина llama-engine).
     pub settings: settings_view::SettingsState,
     /// Все cx.subscribe — обязаны храниться (правило скилла gpui-kit).
-    _subscriptions: Vec<gpui_kit::Subscription>,
+    _subscriptions: Vec<my_gpui_kit::Subscription>,
 }
 
 impl RootView {
@@ -67,11 +65,10 @@ impl RootView {
     ) -> Self {
         let backend_selection = config::load(&base).ui_backend;
         // Дефолт GPUI-окна — тёмная тема (решение владельца 15.11.26; egui
-        // тоже стартует тёмным: ui/mod.rs `dark: true`). set_dark = change +
-        // кастомная палитра 4 слоёв (SSOT egui visuals); change сбрасывает
-        // colors на дефолт, поэтому палитра ставится только после него.
-        theme::set_dark(cx);
-        log::info!("GPUI: тема — тёмная палитра 4 слоёв (план спеца 15.11.26)");
+        // тоже стартует тёмным). Кит-SSOT: setup_theme = change + палитра
+        // 4 слоёв; смена режима — тоже только через setup_theme.
+        setup_theme(ThemeMode::Dark, cx);
+        log::info!("GPUI: тема — тёмная палитра 4 слоёв из крейта my-gpui-kit");
         let dark = cx.theme().mode.is_dark();
         let main = MainState::new(&base, cmd_tx, event_rx, window, cx);
         // Настройки: конфиг + конфиг плагина llama-engine (модели для
@@ -124,32 +121,29 @@ impl RootView {
             },
         ));
 
-        // Выбор модели в выпадающем списке настроек: Confirm(Option<путь>),
-        // "" = «Первая доступная» (ai_model_path = None). Отсутствующий на
-        // диске GGUF в Select disabled, но проверку дублируем в лог.
+        // Выбор модели: wire_model_select кита (Confirm(Option<путь>) →
+        // on_pick); None = «Первая доступная» (ai_model_path = None).
+        // Отсутствующий на диске GGUF в Select disabled, но проверку дублируем.
         if let Some(select) = settings.select.clone() {
-            subscriptions.push(cx.subscribe(
-                &select,
-                |this: &mut Self, _, event: &SelectEvent<Vec<ModelItem>>, cx| match event {
-                    SelectEvent::Confirm(Some(v)) if v.is_empty() => {
+            subscriptions.push(wire_model_select(&select, cx, |this: &mut Self, picked, cx| {
+                match picked {
+                    None => {
                         log::info!("настройки: модель — первая доступная из списка плагина");
                         this.settings.persist(&this.base, |cfg| cfg.ai_model_path = None);
                         cx.notify();
                     }
-                    SelectEvent::Confirm(Some(v)) => {
-                        if Path::new(v).is_file() {
-                            log::info!("настройки: модель: {}", file_label(v));
-                            let picked = v.clone();
+                    Some(v) => {
+                        if Path::new(&v).is_file() {
+                            log::info!("настройки: модель: {v}");
                             this.settings
-                                .persist(&this.base, |cfg| cfg.ai_model_path = Some(picked));
+                                .persist(&this.base, |cfg| cfg.ai_model_path = Some(v));
                         } else {
                             log::warn!("настройки: файл модели не найден, не применено: {v}");
                         }
                         cx.notify();
                     }
-                    SelectEvent::Confirm(None) => {}
-                },
-            ));
+                }
+            }));
         }
 
         // Drain событий воркера: mpsc-канал не асинхронный — поллим каждые
@@ -182,7 +176,6 @@ impl RootView {
             backend_selection,
             main,
             logs_tail: String::new(),
-            logs_path: None,
             settings,
             _subscriptions: subscriptions,
         }
@@ -191,122 +184,41 @@ impl RootView {
 
 impl Render for RootView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .flex()
-            .flex_col()
-            .size_full()
-            .bg(cx.theme().background)
-            .text_color(cx.theme().foreground)
-            // Шапка — своя (см. header_bar): библиотечный TitleBar делает
-            // вкладки некликабельными (WCA::Drag на всём контейнере детей).
-            .child(header_bar(self, cx))
-            // Содержимое активной вкладки — остаток высоты.
-            .child(
-                div().flex().flex_col().flex_1().overflow_hidden().child(match self.tab {
-                    Tab::Main => main_view::render(self, cx),
-                    Tab::Logs => logs_view::render(self, cx),
-                    Tab::Settings => settings_view::render(self, cx),
-                }),
-            )
-    }
-}
-
-/// Своя шапка окна: слева заголовок + вкладки-кнопки (кликабельные), пустая
-/// зона — drag окна, справа переключатель темы и кнопки окна.
-///
-/// Библиотечный `TitleBar` НЕ подходит: его render вешает `window_control_area
-/// (Drag)` на контейнер ВСЕХ детей, а hit-test окна возвращает drag-область,
-/// если WCA-hitbox есть в стеке hitbox'ов под мышью (gpui window.rs:2258) —
-/// на Windows клики по детям уходят в HTCAPTION и в приложение не попадают.
-/// Поэтому drag-зона — отдельный пустой div: кликабельные элементы вне её.
-fn header_bar(root: &RootView, cx: &mut Context<RootView>) -> Div {
-    // Вкладки-кнопки: активная залита primary, неактивные ghost (план спеца №4).
-    let tab = |id: &'static str, label: &'static str, active: bool| {
-        let btn = Button::new(id).label(label);
-        if active { btn.primary() } else { btn.ghost() }
-    };
-    let tab_main = tab("tab_main", "Главная", root.tab == Tab::Main).on_click(
-        cx.listener(|this: &mut RootView, _, _, cx| {
-            this.tab = Tab::Main;
-            cx.notify();
-        }),
-    );
-    let tab_logs = tab("tab_logs", "Логи", root.tab == Tab::Logs).on_click(cx.listener(
-        |this: &mut RootView, _, _, cx| {
-            this.tab = Tab::Logs;
-            cx.notify();
-        },
-    ));
-    let tab_settings = tab("tab_settings", "Настройки", root.tab == Tab::Settings).on_click(
-        cx.listener(|this: &mut RootView, _, _, cx| {
-            this.tab = Tab::Settings;
-            cx.notify();
-        }),
-    );
-
-    // Переключатель темы: change сбрасывает палитру на дефолт registered-темы,
-    // поэтому каждая смена режима идёт через theme::set_dark/set_light
-    // (тёмная — change + наша палитра, светлая — дефолт gpui).
-    let toggle = Button::new("theme_toggle")
-        .ghost()
-        .label(if root.dark { "☀ Светлая" } else { "🌙 Тёмная" })
-        .on_click(cx.listener(|this: &mut RootView, _, _, cx| {
-            this.dark = !this.dark;
-            if this.dark {
-                theme::set_dark(cx);
-            } else {
-                theme::set_light(cx);
+        // Вкладки-кнопки AppShell: активная залита primary (паритет шапки).
+        let tab = |id: &'static str, label: &'static str, tab: Tab| {
+            let mut t = AppTab::new(id, label);
+            if self.tab == tab {
+                t = t.active();
             }
-            log::info!("GPUI: тема — {}", if this.dark { "тёмная" } else { "светлая" });
-        }));
+            t.on_click(cx.listener(move |this: &mut Self, _, _, cx| {
+                this.tab = tab;
+                cx.notify();
+            }))
+        };
+        // Подпись toggle — СЛЕДУЮЩАЯ тема (паритет прежней шапки).
+        let theme_label = if self.dark { "☀ Светлая" } else { "🌙 Тёмная" };
 
-    // Кнопки окна (библиотечные WindowControls приватны): свернуть/развернуть/закрыть.
-    let win_min = Button::new("win_minimize")
-        .label("─")
-        .ghost()
-        .on_click(|_, window, _| window.minimize_window());
-    let win_max = Button::new("win_maximize")
-        .label("❐")
-        .ghost()
-        .on_click(|_, window, _| window.zoom_window());
-    let win_close = Button::new("win_close")
-        .label("✕")
-        .ghost()
-        .on_click(|_, window, _| window.remove_window());
-
-    div()
-        .flex()
-        .flex_row()
-        .items_center()
-        .h(px(36.0))
-        .bg(cx.theme().title_bar)
-        .border_b_1()
-        .border_color(cx.theme().title_bar_border)
-        .pl(px(12.0))
-        .child(
-            h_flex()
-                .gap_3()
-                .items_center()
-                .child(
-                    div()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(SharedString::from("VibeBridge — GPUI-фронтенд")),
-                )
-                .child(tab_main)
-                .child(tab_logs)
-                .child(tab_settings),
-        )
-        // Пустая зона — таскание окна (drag-hitbox только здесь: вкладки,
-        // тема и кнопки окна не попадают в него и остаются кликабельными).
-        .child(
-            div()
-                .id("header_drag")
-                .flex_1()
-                .h_full()
-                .window_control_area(WindowControlArea::Drag),
-        )
-        .child(toggle)
-        .child(win_min)
-        .child(win_max)
-        .child(win_close)
+        AppShell::new("VibeBridge — GPUI-фронтенд")
+            .tab(tab("tab_main", "Главная", Tab::Main))
+            .tab(tab("tab_logs", "Логи", Tab::Logs))
+            .tab(tab("tab_settings", "Настройки", Tab::Settings))
+            .theme_toggle(theme_label, cx.listener(|this: &mut Self, _, _, cx| {
+                this.dark = !this.dark;
+                if this.dark {
+                    setup_theme(ThemeMode::Dark, cx);
+                } else {
+                    setup_theme(ThemeMode::Light, cx);
+                }
+                log::info!(
+                    "GPUI: тема — {}",
+                    if this.dark { "тёмная" } else { "светлая" }
+                );
+            }))
+            // Содержимое активной вкладки (AppShell сам даёт flex_1 + hidden).
+            .child(match self.tab {
+                Tab::Main => main_view::render(self, cx),
+                Tab::Logs => logs_view::render(self, cx),
+                Tab::Settings => settings_view::render(self, cx),
+            })
+    }
 }

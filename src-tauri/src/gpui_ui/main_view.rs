@@ -8,15 +8,15 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use gpui_kit::component::checkbox::Checkbox;
-use gpui_kit::component::list::ListItem;
-use gpui_kit::component::radio::RadioGroup;
-use gpui_kit::component::resizable::{h_resizable, v_resizable};
-use gpui_kit::component::tree::tree;
-use gpui_kit::component::{ActiveTheme, button::{Button, ButtonVariants}, h_flex};
-use gpui_kit::{
-    AnyElement, App, Context, ElementId, InteractiveElement as _, IntoElement,
-    ParentElement as _, PathPromptOptions, SharedString, Styled as _, WeakEntity, div, px,
+use my_gpui_kit::component::checkbox::Checkbox;
+use my_gpui_kit::component::list::ListItem;
+use my_gpui_kit::component::radio::RadioGroup;
+use my_gpui_kit::component::resizable::{h_resizable, v_resizable};
+use my_gpui_kit::component::tree::tree;
+use my_gpui_kit::component::{ActiveTheme, button::{Button, ButtonVariants}, h_flex};
+use my_gpui_kit::{
+    AnyElement, App, AppCard, Context, ElementId, IntoElement, ParentElement as _,
+    PathPromptOptions, SharedString, Styled as _, WeakEntity, div, px,
 };
 
 use super::root_view::RootView;
@@ -334,22 +334,12 @@ fn uplink_card(
         .map(|s| div().text_color(cx.theme().muted_foreground).child(SharedString::from(s)))
         .map(|el| el.into_any_element());
 
-    // — карточка целиком
-    div()
-        .id("uplink_card")
-        .flex()
-        .flex_col()
+    // — карточка кита (bg/border/rounded/p_3 внутри; растяжение — refine).
+    AppCard::new()
+        .title("Проект → чат")
         .flex_1()
         .min_h(px(0.0))
-        .gap_2()
-        .p_3()
-        // Карточка — слой СВЕТЛЕЕ фона окна (план спеца №1).
-        .bg(cx.theme().secondary)
-        .border_1()
-        .border_color(cx.theme().border)
-        .rounded(px(6.0))
         .overflow_hidden()
-        .child(div().child(SharedString::from("Проект → чат")))
         .child(h_flex().gap_2().child(pick).child(refresh))
         .child(path_line)
         .child(div().h(px(1.0)).w_full().bg(cx.theme().border))
