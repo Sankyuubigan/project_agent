@@ -34,7 +34,7 @@ pub const TOOL_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Путь к тул-бинарю по умолчанию (машина владельца); переопределяется
 /// ключом `repomap_tool` в config.json.
-pub const DEFAULT_TOOL: &str = "D:\\Projects\\my-tauri-plugins\\bin\\agent-tools.exe";
+pub const DEFAULT_TOOL: &str = "D:\\Projects\\cross-app-plugins\\bin\\agent-tools.exe";
 
 // ---------------------------------------------------------------------------
 // Сборка аргументов (чистые функции — тестируются без запуска процессов).
@@ -464,7 +464,7 @@ tools/media.rs:
         let err = run_map_scope(
             dir.path(),
             "no/such/dir",
-            Path::new("D:/Projects/my-tauri-plugins/bin/agent-tools.exe"),
+            Path::new("D:/Projects/cross-app-plugins/bin/agent-tools.exe"),
             512,
         )
         .unwrap_err();

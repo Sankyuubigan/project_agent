@@ -9,11 +9,11 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2.7.0", features = ["unstable"] }
-tauri-plugin-logs = { path = "../../my-tauri-plugins/tauri-plugin-logs" }
-tauri-plugin-egui = { path = "../../my-tauri-plugins/tauri-plugin-egui" }
+tauri-plugin-logs = { path = "../../cross-app-plugins/tauri-plugin-logs" }
+tauri-plugin-egui = { path = "../../cross-app-plugins/tauri-plugin-egui" }
 # Локальная LLM (llama-server.exe) для AI-подбора файлов: Rust-API движка
 # напрямую из воркера, без регистрации Tauri-плагина и без AppHandle.
-tauri-plugin-llama-engine = { path = "../../my-tauri-plugins/tauri-plugin-llama-engine" }
+tauri-plugin-llama-engine = { path = "../../cross-app-plugins/tauri-plugin-llama-engine" }
 agent-core = { path = "../crates/agent-core" }
 log = "0.4"
 arboard = "3"
@@ -26,9 +26,9 @@ png = "0.17"
 # Нативные диалоги выбора папки/файлов.
 rfd = "0.15"
 # Экспериментальный GPUI-фронтенд (PRP 14.11.26): нативное окно без Tauri.
-# SSOT UI — кит владельца (my-tauri-plugins/gpui-kit): тема/AppShell/AppCard/
+# SSOT UI — кит владельца (cross-app-plugins/gpui-kit): тема/AppShell/AppCard/
 # LogsPanel/LlamaSettingsCard; gpui-kit 0.9.1 идёт транзитивно.
-my-gpui-kit = { path = "../../my-tauri-plugins/gpui-kit", features = ["logs", "llama"] }
+my-gpui-kit = { path = "../../cross-app-plugins/gpui-kit", features = ["logs", "llama"] }
 
 [dev-dependencies]
 # Фикстура сценарного прогона AI-подбора (ai_pick_scenarios.rs).
