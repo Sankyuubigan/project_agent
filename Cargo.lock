@@ -1930,6 +1930,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 
 [[package]]
+name = "downloader-core"
+version = "0.1.0"
+dependencies = [
+ "curl",
+ "futures-util",
+ "log",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "dpi"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4835,6 +4848,7 @@ checksum = "4744e383959f0db86ede514b809b1c53251889093803c05267acc7d4e7030d70"
 name = "llama-engine-core"
 version = "0.1.0"
 dependencies = [
+ "downloader-core",
  "futures-util",
  "json-store",
  "log",
@@ -6488,21 +6502,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "plugin-downloader"
-version = "0.1.0"
-dependencies = [
- "curl",
- "futures-util",
- "log",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tauri",
- "tauri-plugin",
- "tokio",
-]
-
-[[package]]
 name = "plugin-llama-engine"
 version = "0.1.0"
 dependencies = [
@@ -6512,7 +6511,6 @@ dependencies = [
  "log",
  "minijinja",
  "nvml-wrapper",
- "plugin-downloader",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
