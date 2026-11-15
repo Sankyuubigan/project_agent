@@ -12,7 +12,7 @@ mod style;
 mod text_menu;
 mod tree_widget;
 mod uplink;
-mod uplink_text;
+pub(crate) mod uplink_text;
 
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
@@ -186,21 +186,15 @@ impl AppUi {
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            // Сверху слева — ответ LLM (Downlink).
-            egui::TopBottomPanel::top("downlink_area")
-                .resizable(true)
-                .default_height(340.0)
-                .min_height(180.0)
-                .show_inside(ui, |ui| {
-                    style::card_frame(ui.ctx()).show(ui, |ui| {
-                        self.downlink.draw(ui, self.uplink.root(), &self.paths.base);
-                    });
-                });
-            // Ниже — черновик запроса. Панель bottom (не голый Frame): только
-            // панели egui честно обрезаются по границе центральной области —
-            // Frame на ui центральной панели вылезал под правую панель
-            // (рамки правого края не было видно, кнопки обрезались).
-            egui::TopBottomPanel::bottom("draft_panel").show_inside(ui, |ui| {
+            // Ниже — черновик запроса: рисуем ПЕРВОЙ, чтобы по фактической
+            // высоте её панели растянуть верхнюю (ответ LLM) на весь остаток
+            // центральной области — между карточками не остаётся пустой
+            // «дыры». Панель bottom (не голый Frame): только панели egui
+            // честно обрезаются по границе центральной области — Frame на ui
+            // центральной панели вылезал под правую панель (рамки правого
+            // края не было видно, кнопки обрезались).
+            let center_top = ui.cursor().top();
+            let draft = egui::TopBottomPanel::bottom("draft_panel").show_inside(ui, |ui| {
                 style::card_frame(ui.ctx()).show(ui, |ui| {
                     // selectable-пути скана — для тулов AI-подбора (find_files,
                     // анти-галлюцинация); заимствование uplink кончается до
@@ -215,6 +209,21 @@ impl AppUi {
                     );
                 });
             });
+            // Сверху слева — ответ LLM (Downlink): высота = весь остаток до
+            // верха черновика (разделителем можно сузить — egui запомнит).
+            let remaining = (draft.response.rect.top() - center_top).max(180.0);
+            egui::TopBottomPanel::top("downlink_area")
+                .resizable(true)
+                .default_height(remaining)
+                .min_height(180.0)
+                .show_inside(ui, |ui| {
+                    style::card_frame(ui.ctx()).show(ui, |ui| {
+                        // Карточка растягивается на всю панель — поле ответа
+                        // честно занимает отведённую высоту (без полосы под ним).
+                        ui.set_min_size(ui.available_size());
+                        self.downlink.draw(ui, self.uplink.root(), &self.paths.base);
+                    });
+                });
         });
     }
 }

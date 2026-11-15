@@ -25,6 +25,9 @@ clipboard-win = "5"
 png = "0.17"
 # Нативные диалоги выбора папки/файлов.
 rfd = "0.15"
+# Экспериментальный GPUI-фронтенд (PRP 14.11.26): нативное окно без Tauri.
+# Единственная GPUI-зависимость (скилл gpui-kit); слои — gpui_kit::component/base/assets.
+gpui-kit = "0.9.1"
 
 [dev-dependencies]
 # Фикстура сценарного прогона AI-подбора (ai_pick_scenarios.rs).

@@ -2,14 +2,14 @@
 //! 500 строк на файл; используются кодом uplink и модульными тестами.
 
 /// Нормализовать предложенный ИИ путь: `\` → `/`, без ведущего `./`.
-pub(super) fn normalize_ai_path(p: &str) -> String {
+pub(crate) fn normalize_ai_path(p: &str) -> String {
     let p = p.trim().replace('\\', "/");
     p.strip_prefix("./").unwrap_or(&p).to_string()
 }
 
 /// Reasoning для строки статуса: обрезка до `max_chars` символов
 /// (полный текст — в логе воркера).
-pub(super) fn truncate_for_status(s: &str, max_chars: usize) -> String {
+pub(crate) fn truncate_for_status(s: &str, max_chars: usize) -> String {
     if s.chars().count() <= max_chars {
         return s.to_string();
     }

@@ -8,15 +8,19 @@ use std::path::Path;
 use tauri_plugin_egui::egui;
 use tauri_plugin_llama_engine::engine::config::{load_config_early, EngineConfig};
 
-use agent_core::config;
+use agent_core::config::{self, UiBackend};
 use agent_core::tree::repomap::DEFAULT_TOOL;
 
 use super::style;
+use crate::restart;
 
 /// Стейт вкладки настроек.
 pub struct SettingsState {
     /// Снимок конфига VibeBridge (отображение; сохранение — read-modify-write).
     cfg: config::AppConfig,
+    /// Выбранный движок интерфейса (рабочее состояние радио; применяется
+    /// кнопкой «Сохранить и перезапустить», PRP 14.11.26 шаг 2).
+    ui_backend: UiBackend,
     /// Конфиг плагина (перечитывается кнопкой «↻ Перечитать»).
     engine: Option<EngineConfig>,
     status: Option<String>,
@@ -24,7 +28,8 @@ pub struct SettingsState {
 
 impl SettingsState {
     pub fn load(base: &Path) -> Self {
-        let mut st = Self { cfg: config::load(base), engine: None, status: None };
+        let cfg = config::load(base);
+        let mut st = Self { ui_backend: cfg.ui_backend, cfg, engine: None, status: None };
         st.refresh_engine();
         st
     }
@@ -55,6 +60,8 @@ impl SettingsState {
     pub fn draw(&mut self, ctx: &egui::Context, base: &Path) {
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+                self.draw_backend_card(ui, base);
+                ui.add_space(10.0);
                 self.draw_engine_card(ui);
                 ui.add_space(10.0);
                 self.draw_model_card(ui, base);
@@ -63,6 +70,29 @@ impl SettingsState {
                 if let Some(status) = &self.status {
                     ui.add_space(6.0);
                     ui.label(status);
+                }
+            });
+        });
+    }
+
+    /// Карточка «Движок интерфейса» (PRP 14.11.26, шаг 2): переключатель
+    /// egui/GPUI + сохранение и перезапуск. Конфиг — через persist
+    /// (read-modify-write), рестарт — `crate::restart`.
+    fn draw_backend_card(&mut self, ui: &mut egui::Ui, base: &Path) {
+        style::card_frame(ui.ctx()).show(ui, |ui| {
+            ui.heading("Движок интерфейса");
+            ui.radio_value(&mut self.ui_backend, UiBackend::Egui, "egui (Текущий)");
+            ui.radio_value(&mut self.ui_backend, UiBackend::Gpui, "GPUI (Новый)");
+            let backend = self.ui_backend;
+            ui.add_enabled_ui(backend != self.cfg.ui_backend, |ui| {
+                if ui.button("Сохранить и перезапустить").clicked() {
+                    self.persist(base, |cfg| cfg.ui_backend = backend);
+                    if restart::relaunch() {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                    } else {
+                        self.status =
+                            Some("не удалось запустить новый процесс — см. лог".to_string());
+                    }
                 }
             });
         });

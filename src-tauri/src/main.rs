@@ -1,10 +1,12 @@
 //! VibeBridge — точка входа.
 //!
-//! Окно Tauri (`Window`, НЕ `WebviewWindow`) + egui через вендоренный
-//! `tauri-plugin-egui`: WebView2 не используется, процесса `msedgewebview2.exe`
+//! Движок интерфейса выбирается конфигом (`ui_backend` в `config.json`, PRP
+//! 14.11.26): egui — окно Tauri (`Window`, НЕ `WebviewWindow`) + egui через
+//! вендоренный `tauri-plugin-egui`; gpui — нативное окно gpui-kit, Tauri не
+//! инициализируется. WebView2 не используется, процесса `msedgewebview2.exe`
 //! от приложения быть не должно (проверка шага 1 PRP).
 
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 mod ai_pick;
 mod ai_pick_prompt;
@@ -15,12 +17,16 @@ mod ai_pick_scenarios;
 #[cfg(test)]
 mod ai_pick_smoke;
 mod clipboard;
+mod gpui_ui;
+mod restart;
 mod ui;
 mod worker;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use tauri_plugin_egui::{egui, AppHandleExt, Builder as EguiPluginBuilder};
+
+use agent_core::config::{self, UiBackend};
 
 fn main() {
     // Краш-лог с первой миллисекунды (до инициализации Tauri).
@@ -36,21 +42,35 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
+    // Все пути приложения — от папки exe (правило владельца §6). Конфиг читаем
+    // ДО выбора ветки UI: он и выбирает движок интерфейса.
+    let base = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(Path::to_path_buf))
+        .ok_or("не удалось определить папку exe (current_exe)")?;
+    let cfg = config::load(&base);
+    // Глобальный log:: ещё не установлен (это делает выбранная ветка) — ранний канал.
+    tauri_plugin_logs::early_log(
+        "INFO",
+        &format!("VibeBridge: движок интерфейса — {}", cfg.ui_backend),
+    );
+    match cfg.ui_backend {
+        UiBackend::Gpui => gpui_ui::run(base),
+        UiBackend::Egui => run_egui(base),
+    }
+}
+
+/// Текущий фронтенд: окно Tauri + egui через вендоренный tauri-plugin-egui.
+fn run_egui(base: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     tauri::Builder::default()
         .plugin(tauri_plugin_logs::init())
-        .setup(|app| {
+        .setup(move |app| {
             // Облачная отправка ошибок отключена на уровне хоста (правило).
             tauri_plugin_logs::set_reporting_enabled(false);
             log::info!("VibeBridge: инициализация окна на egui (без WebView)");
 
             // Рендер-плагин egui: подписывается на цикл событий wry.
             app.wry_plugin(EguiPluginBuilder::new(app.handle().to_owned()));
-
-            // Все пути приложения — от папки exe (правило владельца §6).
-            let base = std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(Path::to_path_buf))
-                .ok_or("не удалось определить папку exe (current_exe)")?;
 
             // UI-стейт общий между Tauri-setup и egui-замыканием кадра.
             let app_ui = Arc::new(Mutex::new(ui::AppUi::new(ui::AppPaths { base })));

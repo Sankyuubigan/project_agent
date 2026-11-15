@@ -407,13 +407,35 @@ fn generate_final_answer(
     prompt::parse_answer(&generated.text)
 }
 
-/// Ключ анти-лупа: имя тула + канонический JSON аргументов
-/// (serde_json Value сериализуется с отсортированными ключами).
+/// Ключ анти-лупа: имя тула + канонический JSON аргументов. Раньше сортировку
+/// ключей давал BTreeMap в serde_json::Map; gpui-pre включает фичу
+/// serde_json/preserve_order (Map = IndexMap, порядок вставки) — канонизация
+/// сортирует ключи сама, чтобы дедуп не зависел от фич в графе зависимостей.
 fn canonical_call_key(call: &ToolCall) -> (String, String) {
     let canonical = serde_json::from_str::<serde_json::Value>(&call.arguments)
+        .map(sort_object_keys)
         .map(|v| v.to_string())
         .unwrap_or_else(|_| call.arguments.trim().to_string());
     (call.name.clone(), canonical)
+}
+
+/// Сортировка ключей JSON-объектов в глубину — для канонической строки.
+fn sort_object_keys(v: serde_json::Value) -> serde_json::Value {
+    match v {
+        serde_json::Value::Object(map) => {
+            let mut entries: Vec<(String, serde_json::Value)> = map.into_iter().collect();
+            entries.sort_by(|a, b| a.0.cmp(&b.0));
+            let mut sorted = serde_json::Map::with_capacity(entries.len());
+            for (k, val) in entries {
+                sorted.insert(k, sort_object_keys(val));
+            }
+            serde_json::Value::Object(sorted)
+        }
+        serde_json::Value::Array(items) => {
+            serde_json::Value::Array(items.into_iter().map(sort_object_keys).collect())
+        }
+        other => other,
+    }
 }
 
 /// Валидация выбора: нормализация, отброс фантомов, дедуп с сохранением
