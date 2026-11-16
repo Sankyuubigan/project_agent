@@ -1,4 +1,6 @@
 {
+  "kind": "cargo",
+  "crateDir": "src-tauri",
   "appExe": "VibeBridge",
   "productName": "VibeBridge",
   "npmInstallArgs": ["--legacy-peer-deps"],

@@ -3,7 +3,7 @@
 Перенос Python-проекта `D:\Projects\project_agent` на Rust + Tauri **без WebView2**
 (UI — egui через вендоренный `tauri-plugin-egui`). План работ: `tasks/PRP_PatchLoop_Tauri.md`.
 
-## Сборка и запуск — ТОЛЬКО через tauri-build-toolkit
+## Сборка и запуск — ТОЛЬКО через rust-build-toolkit
 
 - Сборка: `build.bat` (корень). Тесты: `test.bat`. Релиз: `release.bat`.
 - Прямой `cargo build` / `npx tauri` / `npm run tauri` — ЗАПРЕЩЁН (правила владельца §2 desktop_rust_tauri_rules).
