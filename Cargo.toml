@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/agent-core", "src-tauri"]
 
 [workspace.package]
-version = "26.11.0"
+version = "26.11.5"
 edition = "2021"
 
 [profile.release]
